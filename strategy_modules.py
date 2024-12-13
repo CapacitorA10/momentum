@@ -1,139 +1,136 @@
 # strategy_modules.py
+
 import pandas as pd
 import numpy as np
-import yfinance as yf
+from scipy.stats import rankdata
 import cvxpy as cp
-from config import *
 
 
-# 데이터 로더 및 전처리
-def load_universe():
-    df = pd.read_csv(KOSPI200_LIST_PATH)
-    return df['ticker'].tolist()
+def calculate_growth_rate(series):
+    # 4분기 복리성장률 = (마지막값 / 첫값)^(1/4)-1
+    if len(series) < 4:
+        return np.nan
+    return (series.iloc[-1] / series.iloc[0]) ** (1 / 4) - 1
 
 
-def load_price_data(tickers):
-    price_data = yf.download(tickers, start=START_DATE, end=END_DATE)
-    adj_close = price_data['Adj Close']
-    return adj_close
-
-
-def load_fundamental_data(tickers):
-    fundamentals = {}
-    for t in tickers:
-        try:
-            df = pd.read_csv(f'./data/fundamentals/{t}_fundamentals.csv', parse_dates=['date'])
-            df.set_index('date', inplace=True)
-            fundamentals[t] = df
-        except FileNotFoundError:
-            continue
-    return fundamentals
-
-
-# 팩터 계산
-def calculate_rsi(prices, period=RSI_PERIOD):
-    delta = prices.diff()
-    up = delta.clip(lower=0).rolling(period).mean()
-    down = -delta.clip(upper=0).rolling(period).mean()
-    rsi = 100 - (100 / (1 + up / down))
+def calculate_rsi(price_series, period=30):
+    # RSI 계산
+    delta = price_series.diff()
+    up = delta.where(delta > 0, 0)
+    down = -delta.where(delta < 0, 0)
+    roll_up = up.rolling(window=period).mean()
+    roll_down = down.rolling(window=period).mean()
+    rs = roll_up / roll_down
+    rsi = 100 - (100 / (1 + rs))
     return rsi
 
 
-def geometric_growth_rate(series, periods=4):
-    if len(series) < periods:
-        return np.nan
-    growth = (series.iloc[-1] / series.iloc[0]) ** (1 / periods) - 1
-    return growth
+class FactorCalculator:
+    def __init__(self):
+        pass
+
+    def calculate_factors(self, financial_df, price_df):
+        """
+        financial_df: 재무데이터 DataFrame
+        price_df: 주가 데이터 DataFrame
+        """
+        # 종목별로 재무데이터 그룹화
+        grouped = financial_df.groupby('Code')
+
+        factor_dict = {
+            'Code': [],
+            'RevenueGrowth': [],
+            'OpIncomeGrowth': [],
+            'ROE': [],
+            'RSI': []
+        }
+
+        for code, group in grouped:
+            group = group.sort_values(['Year', 'Report'])
+
+            # 매출액과 영업이익의 성장률 계산
+            rev_growth = calculate_growth_rate(group['매출액'])
+            op_growth = calculate_growth_rate(group['영업이익'])
+
+            # ROE는 가장 최근 값 사용
+            roe = group['ROE'].iloc[-1] if not group['ROE'].isnull().all() else np.nan
+
+            # RSI 계산
+            ticker = code + ".KS"
+            if ticker in price_df.columns:
+                rsi_series = calculate_rsi(price_df[ticker])
+                rsi_val = rsi_series.iloc[-1] if not rsi_series.dropna().empty else np.nan
+            else:
+                rsi_val = np.nan
+
+            factor_dict['Code'].append(code)
+            factor_dict['RevenueGrowth'].append(rev_growth)
+            factor_dict['OpIncomeGrowth'].append(op_growth)
+            factor_dict['ROE'].append(roe)
+            factor_dict['RSI'].append(rsi_val)
+
+        factor_df = pd.DataFrame(factor_dict)
+        return factor_df
+
+    def rank_stocks(self, factor_df):
+        """
+        각 Factor별 Quintile 나눔 후 1~5점 할당 (5점: 상위 20%, 1점: 하위 20%)
+        """
+        ranked_df = factor_df.copy()
+
+        for col in ['RevenueGrowth', 'OpIncomeGrowth', 'ROE', 'RSI']:
+            ranked_df[col + '_score'] = ranked_df[col].rank(method='first', ascending=False)
+            ranked_df[col + '_score'] = pd.qcut(ranked_df[col + '_score'], 5, labels=False) + 1  # 1~5
+            ranked_df[col + '_score'] = 6 - ranked_df[col + '_score']  # 상위에 높은 점수
+
+        # 종합 점수 계산 (평균)
+        ranked_df['TotalScore'] = ranked_df[
+            ['RevenueGrowth_score', 'OpIncomeGrowth_score', 'ROE_score', 'RSI_score']].mean(axis=1)
+
+        # 상위 20% 종목 필터
+        cutoff = ranked_df['TotalScore'].quantile(0.8)
+        selected = ranked_df[ranked_df['TotalScore'] >= cutoff].reset_index(drop=True)
+        return selected
 
 
-def calculate_factors(price_data, fundamental_data):
-    latest_prices = price_data.iloc[-200:]
-    rsi_df = latest_prices.apply(calculate_rsi)
-    latest_rsi = rsi_df.iloc[-1]
+def optimize_portfolio(selected_stocks, returns_df):
+    """
+    Markowitz 최적화
+    selected_stocks: 선택된 종목 DataFrame
+    returns_df: 선택된 종목의 일별 수익률 DataFrame
+    """
+    # 기대 수익률 및 공분산 계산
+    mu = returns_df.mean()
+    Sigma = returns_df.cov()
+    codes = selected_stocks['Code'].tolist()
 
-    revenue_growth, op_income_growth, roe_values = {}, {}, {}
+    mu_selected = mu[codes].values
+    Sigma_selected = Sigma.loc[codes, codes].values
 
-    for t, df in fundamental_data.items():
-        df = df.sort_index()
-        if len(df) < 4:
-            revenue_growth[t], op_income_growth[t], roe_values[t] = np.nan, np.nan, np.nan
-            continue
-        revenue_growth[t] = geometric_growth_rate(df['revenue'].tail(4))
-        op_income_growth[t] = geometric_growth_rate(df['op_income'].tail(4))
-        latest_equity = df['equity'].iloc[-1]
-        latest_net_income = df['net_income'].iloc[-1]
-        roe_values[t] = latest_net_income / latest_equity if latest_equity != 0 else np.nan
+    # 변수 정의
+    w = cp.Variable(len(codes))
 
-    return pd.DataFrame({
-        'revenue_growth': pd.Series(revenue_growth),
-        'op_income_growth': pd.Series(op_income_growth),
-        'ROE': pd.Series(roe_values),
-        'RSI': latest_rsi
-    }).dropna()
+    # 목적 함수: 최대 Sharpe Ratio (평균 수익률 / 포트폴리오 변동성)
+    # 이를 직접 최적화하기는 어렵기 때문에, 다음과 같이 변환
+    # Maximize mu^T w - lambda * w^T Sigma w
+    lambda_ = 1.0
+    objective = cp.Maximize(mu_selected @ w - lambda_ * cp.quad_form(w, Sigma_selected))
 
-
-# 포트폴리오 최적화
-def markowitz_optimization(returns, cov_matrix):
-    n = len(returns)
-    w = cp.Variable(n)
-    ret = returns.values
-    cov = cov_matrix.values
-    lambda_reg = 10.0
-
-    objective = cp.Maximize((w @ (ret - RISK_FREE_RATE)) - lambda_reg * cp.quad_form(w, cov))
+    # 제약조건
     constraints = [
-        cp.sum(w) == 1.0,
-        w >= MIN_WEIGHT,
-        w <= MAX_WEIGHT
+        cp.sum(w) == 1,
+        w >= 0.01,
+        w <= 0.20
     ]
 
+    # 문제 정의 및 해결
     prob = cp.Problem(objective, constraints)
     prob.solve()
-    return pd.Series(w.value, index=returns.index)
 
+    if w.value is None:
+        print("Optimization failed.")
+        return None
 
-# 백테스트
-def quintile_ranking(df):
-    ranked = pd.DataFrame(index=df.index)
-    for c in df.columns:
-        ranked[c] = pd.qcut(df[c].rank(method='first'), 5, labels=[1, 2, 3, 4, 5])
-    ranked['total_score'] = ranked.mean(axis=1)
-    return ranked
-
-
-def backtest(price_data, fundamental_data, rebalance_dates):
-    initial_capital = 1_000_000_000
-    portfolio_value = initial_capital
-    portfolio_value_history, holdings = [], pd.DataFrame(index=price_data.index, columns=price_data.columns).fillna(0)
-
-    for reb_date in rebalance_dates:
-        factor_df = calculate_factors(price_data.loc[:reb_date], fundamental_data)
-        if len(factor_df) < TOP_STOCKS:
-            continue
-
-        ranked = quintile_ranking(factor_df[['revenue_growth', 'op_income_growth', 'ROE', 'RSI']])
-        top_candidates = ranked.sort_values('total_score', ascending=False).head(TOP_STOCKS)
-
-        recent_returns = price_data.loc[:reb_date].pct_change().tail(60).mean()
-        cov_matrix = price_data.loc[:reb_date].pct_change().tail(60).cov()
-
-        opt_universe = top_candidates.index.intersection(recent_returns.index)
-        opt_returns, opt_cov = recent_returns.loc[opt_universe], cov_matrix.loc[opt_universe, opt_universe]
-
-        weights = markowitz_optimization(opt_returns, opt_cov)
-
-        current_prices = price_data.loc[reb_date, opt_universe]
-        allocate_amounts = weights * portfolio_value
-        shares = (allocate_amounts / current_prices).fillna(0)
-
-        holdings.loc[reb_date, :] = 0
-        for s in opt_universe:
-            holdings.loc[reb_date, s] = shares[s]
-
-        next_reb_date = rebalance_dates[rebalance_dates.index(reb_date) + 1] if rebalance_dates.index(
-            reb_date) + 1 < len(rebalance_dates) else price_data.index[-1]
-        sub_period = price_data.loc[reb_date:next_reb_date, opt_universe]
-        for d in sub_period.index:
-            portfolio_value_history.append((d, (sub_period.loc[d] * shares).sum()))
-
-    return pd.DataFrame(portfolio_value_history, columns=['date', 'portfolio_value']).set_index('date')
+    weights = w.value
+    result = pd.DataFrame({'Code': codes, 'Weight': weights})
+    return result
