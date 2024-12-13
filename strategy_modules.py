@@ -9,7 +9,7 @@ from config import *
 # 데이터 로더 및 전처리
 def load_universe():
     df = pd.read_csv(KOSPI200_LIST_PATH)
-    return df['ticker'].tolist()
+    return df['종목코드'].tolist()
 
 
 def load_price_data(tickers):
