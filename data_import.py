@@ -1,13 +1,14 @@
 # data_import.py
 
 import requests
-from bs4 import BeautifulSoup
 import pandas as pd
 import yfinance as yf
 import json
 import os
-import datetime
 import time
+import zipfile
+import io
+import xml.etree.ElementTree as ET
 
 
 class DataImporter:
@@ -29,6 +30,9 @@ class DataImporter:
         """
         네이버 금융에서 KOSPI200 종목 리스트 스크래핑
         """
+        import requests
+        from bs4 import BeautifulSoup
+
         url = "https://finance.naver.com/sise/entryJongmok.naver?code=KPI200"
         resp = requests.get(url)
         soup = BeautifulSoup(resp.text, 'html.parser')
@@ -56,27 +60,41 @@ class DataImporter:
 
     def get_corp_code_map(self):
         """
-        OpenDART API를 통해 상장회사 목록을 받아 종목코드와 corp_code 매핑
+        OpenDART API를 통해 상장회사 목록(고유번호 파일)을 다운로드한 후
+        stock_code -> corp_code 매핑을 생성
         """
-        url = f"https://opendart.fss.or.kr/api/list.json?crtfc_key={self.dart_api_key}&corp_cls=Y"
+        url = f"https://opendart.fss.or.kr/api/corpCode.xml?crtfc_key={self.dart_api_key}"
         response = requests.get(url)
-        data = response.json()
 
-        if data['status'] != '013':
-            raise Exception(f"Error fetching corp list: {data.get('message', 'Unknown error')}")
+        if response.status_code != 200:
+            raise Exception(f"Error fetching corp code zip: HTTP {response.status_code}")
 
-        corp_list = data['list']
-        corp_code_map = {}
-        for corp in corp_list:
-            corp_code_map[corp['stock_code']] = corp['corp_code']
+        # 응답은 ZIP 파일 형태. 메모리에 로드 후 zipfile로 처리
+        with zipfile.ZipFile(io.BytesIO(response.content)) as z:
+            # ZIP 내부의 CORPCODE.xml 파일을 읽는다.
+            # 파일명이 CORPCODE.xml 인지 확인 (실제 제공되는 파일명은 보통 CORPCODE.xml)
+            for filename in z.namelist():
+                if filename.upper().endswith('.XML'):
+                    with z.open(filename) as xml_file:
+                        tree = ET.parse(xml_file)
+                        root = tree.getroot()
+                        # root 밑에 <list> 태그들이 기업 정보
+                        corp_code_map = {}
+                        for list_item in root.findall('list'):
+                            stock_code = list_item.find('stock_code').text.strip()
+                            corp_code = list_item.find('corp_code').text.strip()
+                            # stock_code가 없는 경우 비상장 회사일 수 있음
+                            # 또는 공백인 경우 제외
+                            if stock_code and stock_code != ' ':
+                                corp_code_map[stock_code] = corp_code
+                        print(f"Total corp codes fetched: {len(corp_code_map)}")
+                        return corp_code_map
 
-        return corp_code_map
+        raise Exception("No XML file found in the downloaded zip.")
 
     def get_financial_data(self, corp_code, bsns_year, reprt_code):
         """
         OpenDART API를 이용해 해당 기업의 특정 사업연도와 보고서 코드에 대한 재무데이터 수집
-        bsns_year: 사업연도 (예: 2020)
-        reprt_code: 보고서 코드 (11011: 1분기보고서, 11012: 2분기보고서, 11013: 3분기보고서, 11014: 4분기보고서)
         """
         url = f"https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json"
         params = {
@@ -88,22 +106,25 @@ class DataImporter:
         resp = requests.get(url, params=params)
         data = resp.json()
 
-        if data['status'] != '000':
-            print(
-                f"Error fetching financial data for corp_code {corp_code}, year {bsns_year}, report {reprt_code}: {data.get('message', 'Unknown error')}")
+        if data.get('status') != '000':
+            # 공시 없는 경우도 있을 수 있음
             return None
 
         # 필요한 항목 추출
         items = data.get('list', [])
         financial_data = {}
         for item in items:
-            account_nm = item['account_nm']
-            thstrm_amount = float(item['thstrm_amount']) if item['thstrm_amount'] else 0.0
+            account_nm = item.get('account_nm', '').strip()
+            thstrm_amount = item.get('thstrm_amount', None)
+            try:
+                thstrm_amount = float(thstrm_amount) if thstrm_amount else 0.0
+            except ValueError:
+                thstrm_amount = 0.0
             if account_nm in ['매출액', '영업이익', '당기순이익', '자본금']:
                 financial_data[account_nm] = thstrm_amount
 
-        # ROE 계산을 위해 자기자본 추가
-        if '당기순이익' in financial_data and '자본금' in financial_data:
+        # ROE 계산
+        if '당기순이익' in financial_data and '자본금' in financial_data and financial_data['자본금'] != 0:
             financial_data['ROE'] = financial_data['당기순이익'] / financial_data['자본금'] * 100
         else:
             financial_data['ROE'] = None
@@ -115,7 +136,8 @@ class DataImporter:
         KOSPI200 종목 전체에 대한 재무데이터 수집
         """
         financial_records = []
-        for index, row in kospi200_df.iterrows():
+        total = len(kospi200_df)
+        for idx, row in kospi200_df.iterrows():
             stock_code = row['Code']
             corp_code = self.corp_code_map.get(stock_code)
             if not corp_code:
@@ -123,14 +145,19 @@ class DataImporter:
                 continue
 
             for year in range(self.start_year, self.end_year + 1):
-                for reprt_code in ['11011', '11012', '11013', '11014']:
+                # 1분기:11013, 반기(2분기):11012, 3분기:11014, 4분기(사업보고서):11011
+                # OpenDART 문서에 따라 reprt_code 확인 필요
+                # *참고: 사업보고서(1년): 11011, 반기보고서:11012, 1분기보고서:11013, 3분기보고서:11014
+                # 여기서는 예시로 1,2,3,4분기 모두 시도
+                for reprt_code in ['11013', '11012', '11014', '11011']:
                     financial = self.get_financial_data(corp_code, year, reprt_code)
                     if financial:
                         financial['Code'] = stock_code
                         financial['Year'] = year
                         financial['Report'] = reprt_code
                         financial_records.append(financial)
-                    time.sleep(0.1)  # API 호출 제한 대비
+                    time.sleep(0.05)  # API 호출 제한 대비
+            print(f"Processed {idx + 1}/{total} stocks.")
         financial_df = pd.DataFrame(financial_records)
         return financial_df
 
@@ -139,6 +166,8 @@ class DataImporter:
         yfinance를 통해 일별 주가 다운로드
         """
         data = yf.download(tickers, start=self.start_date, end=self.end_date)
-        # data['Adj Close']가 MultiIndex('Adj Close', ticker) 형태로 나오므로 이를 정리
-        price_df = data['Adj Close']
+        if isinstance(data.columns, pd.MultiIndex):
+            price_df = data['Adj Close']
+        else:
+            price_df = data
         return price_df
