@@ -101,11 +101,19 @@ class DataImporter:
             'crtfc_key': self.dart_api_key,
             'corp_code': corp_code,
             'bsns_year': bsns_year,
-            'reprt_code': reprt_code
+            'reprt_code': reprt_code,
+            'fs_div': 'CFS'  # CFS: 연결재무제표, OFS: 재무제표
         }
-        resp = requests.get(url, params=params)
+        resp = None
+        for attempt in range(3):
+            try:
+                resp = requests.get(url, params=params, timeout=10)
+                resp.raise_for_status()
+                break
+            except:
+                print(f"Error fetching financial data for {corp_code}, retrying...")
+                time.sleep(1)
         data = resp.json()
-
         if data.get('status') != '000':
             # 공시 없는 경우도 있을 수 있음
             return None
@@ -156,7 +164,7 @@ class DataImporter:
                         financial['Year'] = year
                         financial['Report'] = reprt_code
                         financial_records.append(financial)
-                    time.sleep(0.05)  # API 호출 제한 대비
+                    time.sleep(0.7)  # API 호출 제한 대비
             print(f"Processed {idx + 1}/{total} stocks.")
         financial_df = pd.DataFrame(financial_records)
         return financial_df
