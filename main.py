@@ -22,8 +22,11 @@ def main():
 
     # 4. 재무데이터 수집
     print("재무데이터 수집 중...")
+    # 긴급으로 1개만 추출
+    kospi200_df = kospi200_df.head(1)
     financial_all = importer.get_all_financial_data(kospi200_df)
-    print(f"수집된 재무데이터 레코드 수: {len(financial_all)}")
+    # 데이터 확인
+    print("Available columns:", financial_all.columns)
 
     # 5. 주가데이터 수집
     print("주가데이터 수집 중...")

@@ -128,8 +128,16 @@ class DataImporter:
                 thstrm_amount = float(thstrm_amount) if thstrm_amount else 0.0
             except ValueError:
                 thstrm_amount = 0.0
-            if account_nm in ['매출액', '영업이익', '당기순이익', '자본금']:
-                financial_data[account_nm] = thstrm_amount
+            if item.get('sj_div') == 'IS':
+                if account_nm == '수익(매출액)':
+                    financial_data['매출액'] = thstrm_amount
+                elif account_nm == '영업이익(손실)':
+                    financial_data['영업이익'] = thstrm_amount
+                elif account_nm == '당기순이익(손실)':
+                    financial_data['당기순이익'] = thstrm_amount
+            elif item.get('sj_div') == 'SCE' and item.get('account_nm') == '기말자본' and "자본금 [member]" in item.get(
+                    'account_detail', ""):
+                financial_data['자본금'] = thstrm_amount
 
         # ROE 계산
         if '당기순이익' in financial_data and '자본금' in financial_data and financial_data['자본금'] != 0:
