@@ -6,7 +6,7 @@ import pandas as pd
 import json
 import os
 
-
+##
 def main():
     # 1. config.json 로드
     config_path = 'config.json'
@@ -22,12 +22,13 @@ def main():
 
     # 4. 재무데이터 수집
     print("재무데이터 수집 중...")
-    # 긴급으로 1개만 추출
-    kospi200_df = kospi200_df.head(1)
+    # 긴급으로 3개만 추출
+    kospi200_df = kospi200_df.head(3)
     financial_all = importer.get_all_financial_data(kospi200_df)
+    print(f"financial_all 모든 데이터 출력:\n {financial_all}")
     # 데이터 확인
     print("Available columns:", financial_all.columns)
-
+    return
     # 5. 주가데이터 수집
     print("주가데이터 수집 중...")
     tickers = [code + ".KS" for code in kospi200_df['Code']]

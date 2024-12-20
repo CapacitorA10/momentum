@@ -95,55 +95,83 @@ class DataImporter:
     def get_financial_data(self, corp_code, bsns_year, reprt_code):
         """
         OpenDART API를 이용해 해당 기업의 특정 사업연도와 보고서 코드에 대한 재무데이터 수집
+        연결재무제표(CFS) 우선 시도 후, 데이터 없을 경우 재무제표(OFS)로 재시도
         """
-        url = f"https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json"
-        params = {
-            'crtfc_key': self.dart_api_key,
-            'corp_code': corp_code,
-            'bsns_year': bsns_year,
-            'reprt_code': reprt_code,
-            'fs_div': 'CFS'  # CFS: 연결재무제표, OFS: 재무제표
-        }
-        resp = None
-        for attempt in range(3):
-            try:
-                resp = requests.get(url, params=params, timeout=10)
-                resp.raise_for_status()
-                break
-            except:
-                print(f"Error fetching financial data for {corp_code}, retrying...")
-                time.sleep(1)
-        data = resp.json()
-        if data.get('status') != '000':
-            # 공시 없는 경우도 있을 수 있음
-            return None
 
-        # 필요한 항목 추출
-        items = data.get('list', [])
-        financial_data = {}
-        for item in items:
-            account_nm = item.get('account_nm', '').strip()
-            thstrm_amount = item.get('thstrm_amount', None)
-            try:
-                thstrm_amount = float(thstrm_amount) if thstrm_amount else 0.0
-            except ValueError:
-                thstrm_amount = 0.0
-            if item.get('sj_div') == 'IS':
-                if account_nm == '수익(매출액)':
-                    financial_data['매출액'] = thstrm_amount
-                elif account_nm == '영업이익(손실)':
-                    financial_data['영업이익'] = thstrm_amount
-                elif account_nm == '당기순이익(손실)':
-                    financial_data['당기순이익'] = thstrm_amount
-            elif item.get('sj_div') == 'SCE' and item.get('account_nm') == '기말자본' and "자본금 [member]" in item.get(
-                    'account_detail', ""):
-                financial_data['자본금'] = thstrm_amount
+        financial_data = None
+        for fs_div in ['CFS', 'OFS']:  # CFS 먼저 시도, 없으면 OFS 시도
+            print(
+                f"bsns_year: {bsns_year}, reprt_code: {reprt_code}, fs_div: {fs_div} 사업보고서(1년): 11011, 반기보고서:11012, 1분기보고서:11013, 3분기보고서:11014")
 
-        # ROE 계산
-        if '당기순이익' in financial_data and '자본금' in financial_data and financial_data['자본금'] != 0:
-            financial_data['ROE'] = financial_data['당기순이익'] / financial_data['자본금'] * 100
-        else:
-            financial_data['ROE'] = None
+            url = "https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json"
+            params = {
+                'crtfc_key': self.dart_api_key,
+                'corp_code': corp_code,
+                'bsns_year': bsns_year,
+                'reprt_code': reprt_code,
+                'fs_div': fs_div
+            }
+            resp = None
+            for attempt in range(3):
+                try:
+                    resp = requests.get(url, params=params, timeout=10)
+                    resp.raise_for_status()
+                    break
+                except requests.exceptions.RequestException as e:
+                    print(f"Error fetching financial data for {corp_code} (fs_div: {fs_div}): {e}, retrying...")
+                    time.sleep(1)
+            if resp is None:
+                print(f"Failed to fetch data for {corp_code} (fs_div: {fs_div}) after multiple retries.")
+                continue  # 다음 fs_div 시도
+
+            data = resp.json()
+            if data.get('status') != '000':
+                print(f"Open DART API Error (fs_div: {fs_div}): {data.get('message')}")
+                continue  # 다음 fs_div 시도
+
+            items = data.get('list', [])
+            if not items:  # list가 비어있다면 다음 fs_div 시도
+                continue
+
+            financial_data = {}
+            for item in items:
+                account_nm = item.get('account_nm', '').strip()
+                sj_div = item.get('sj_div')
+                thstrm_amount = item.get('thstrm_amount', None)
+                try:
+                    thstrm_amount = float(thstrm_amount) if thstrm_amount else 0.0
+                except ValueError:
+                    thstrm_amount = 0.0
+
+                if sj_div == 'IS':
+                    #print(f"account_nm: {account_nm}, thstrm_amount: {thstrm_amount}")
+                    if account_nm == '수익(매출액)':
+                        financial_data['매출액'] = thstrm_amount
+                    elif account_nm == '영업이익(손실)':
+                        financial_data['영업이익'] = thstrm_amount
+                    elif account_nm == '당기순이익(손실)':
+                        financial_data['당기순이익'] = thstrm_amount
+                elif sj_div == 'BS':
+                    if account_nm == '자본총계':
+                        financial_data['기말자본총계'] = thstrm_amount
+                    elif account_nm == '자본금':
+                        financial_data['자본금'] = thstrm_amount
+            break  # CFS 혹은 OFS에서 데이터를 가져왔으면 반복문 탈출
+
+        # 이전 연도 데이터 가져오기 (평균 자본 계산을 위해)
+        if financial_data and int(bsns_year) == self.start_year:  # financial_data가 None이 아닌 경우에만 이전년도 데이터 요청
+            prev_bsns_year = str(int(bsns_year) - 1)
+            prev_year_data = self.get_financial_data(corp_code, prev_bsns_year, reprt_code)
+
+            if prev_year_data and '기말자본총계' in prev_year_data:
+                financial_data['기초자본총계'] = prev_year_data['기말자본총계']
+                financial_data['평균자본총계'] = (financial_data['기말자본총계'] + financial_data['기초자본총계']) / 2
+
+            # ROE 계산 (평균 자본 사용)
+            if '당기순이익' in financial_data and '평균자본총계' in financial_data and financial_data['평균자본총계'] != 0:
+                financial_data['ROE'] = financial_data['당기순이익'] / financial_data['평균자본총계'] * 100
+            else:
+                financial_data['ROE'] = None
 
         return financial_data
 
@@ -166,6 +194,7 @@ class DataImporter:
                 # *참고: 사업보고서(1년): 11011, 반기보고서:11012, 1분기보고서:11013, 3분기보고서:11014
                 # 여기서는 예시로 1,2,3,4분기 모두 시도
                 for reprt_code in ['11013', '11012', '11014', '11011']:
+                    print(f"year: {year}, reprt_code: {reprt_code}")
                     financial = self.get_financial_data(corp_code, year, reprt_code)
                     if financial:
                         financial['Code'] = stock_code
