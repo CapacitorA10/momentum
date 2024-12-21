@@ -29,7 +29,7 @@ def main():
     return
     # 6. 팩터 계산
     factor_calc = FactorCalculator()
-    factor_df = factor_calc.calculate_factors(financial_all, price_df)
+    factor_df = factor_calc.calculate_factors(financial_df, price_df)
     print("팩터 계산 완료.")
 
     # 7. 팩터 랭킹 및 상위종목 선별
