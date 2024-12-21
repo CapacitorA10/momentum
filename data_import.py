@@ -6,203 +6,207 @@ import yfinance as yf
 import json
 import os
 import time
-import zipfile
-import io
-import xml.etree.ElementTree as ET
-
+from datetime import datetime, timedelta
+from pykrx import stock
 
 class DataImporter:
     def __init__(self, config_path='config.json'):
         # config.json 로드
-        with open(config_path, 'r') as f:
-            config = json.load(f)
+        self.config_path = config_path
+        self.config = self.load_config()
 
-        self.dart_api_key = config['DART_API_KEY']
-        self.start_year = config['DATA']['start_year']
-        self.end_year = config['DATA']['end_year']
-        self.start_date = config['DATA']['start_date']
-        self.end_date = config['DATA']['end_date']
+        self.kis_appkey = self.config['KIS_API']['appkey']
+        self.kis_appsecret = self.config['KIS_API']['appsecret']
+        self.cano = self.config['KIS_API']['CANO']
+        self.acnt_prdt_cd = self.config['KIS_API']['ACNT_PRDT_CD']
+        self.start_date = self.config['DATA']['start_date']
+        self.end_date = self.config['DATA']['end_date']
 
-        # corp_code 매핑 캐시
-        self.corp_code_map = self.get_corp_code_map()
+        # KOSPI200 종목 리스트 가져오기
+        self.kospi200_df = self.get_kospi200_list()
+
+        # Access Token 발급 또는 기존 토큰 사용
+        self.kis_access_token = self.get_kis_access_token()
+
+    def load_config(self):
+        """
+        config.json 파일을 로드하여 반환합니다.
+        """
+        if not os.path.exists(self.config_path):
+            raise FileNotFoundError(f"{self.config_path} not found.")
+        with open(self.config_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+
+    def save_config(self):
+        """
+        현재 config를 config.json 파일에 저장합니다.
+        """
+        with open(self.config_path, 'w', encoding='utf-8') as f:
+            json.dump(self.config, f, ensure_ascii=False, indent=4)
+
+    def get_kis_access_token(self):
+        """
+        KIS API 인증을 위한 Access Token 발급 또는 기존 토큰 사용
+        """
+        access_token = self.config['KIS_API'].get('access_token')
+        token_issue_time_str = self.config['KIS_API'].get('token_issue_time')
+
+        if access_token and token_issue_time_str:
+            token_issue_time = datetime.strptime(token_issue_time_str, "%Y-%m-%dT%H:%M:%S")
+            if datetime.now() - token_issue_time < timedelta(hours=24):
+                print("기존 Access Token을 사용합니다.")
+                return access_token
+            else:
+                print("Access Token이 만료되었습니다. 새로운 토큰을 발급받습니다.")
+        else:
+            print("Access Token이 존재하지 않습니다. 새로운 토큰을 발급받습니다.")
+
+        # 새로운 Access Token 발급
+        url = "https://openapi.koreainvestment.com:9443/oauth2/tokenP"
+        headers = {
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "grant_type": "client_credentials",
+            "appkey": self.kis_appkey,
+            "appsecret": self.kis_appsecret
+        }
+        response = requests.post(url, headers=headers, json=payload)
+        if response.status_code == 200:
+            token_info = response.json()
+            new_access_token = token_info.get('access_token')
+            if not new_access_token:
+                raise Exception("Access token not found in the response.")
+            # config.json 업데이트
+            self.config['KIS_API']['access_token'] = new_access_token
+            self.config['KIS_API']['token_issue_time'] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+            self.save_config()
+            print("새로운 Access Token을 발급받아 config.json에 저장했습니다.")
+            return new_access_token
+        else:
+            raise Exception(f"Failed to obtain access token: {response.text}")
 
     def get_kospi200_list(self):
         """
-        네이버 금융에서 KOSPI200 종목 리스트 스크래핑
+        pykrx를 사용하여 KOSPI200 종목 리스트를 가져오는 함수
         """
-        import requests
-        from bs4 import BeautifulSoup
+        try:
+            # pykrx의 get_index_portfolio 함수를 사용하여 DataFrame 반환
+            kospi200 = stock.get_index_portfolio_deposit_file(ticker = "1028")  # "1028"은 KOSPI200의 지수 코드
+            # kospi200 이 []인 경우
+            if kospi200 == []:
+                print("KOSPI200 종목 리스트를 가져오지 못했습니다.")
+                return pd.DataFrame()
+            # DataFrame 컬럼을 적절히 변경
+            kospi200_df = pd.DataFrame(kospi200, columns=['Code'])
+            print("KOSPI200 종목 리스트를 성공적으로 가져왔습니다.")
+            return kospi200_df
+        except Exception as e:
+            print(f"KOSPI200 종목 리스트를 가져오는 중 오류 발생: {e}")
+            return pd.DataFrame()
 
-        url = "https://finance.naver.com/sise/entryJongmok.naver?code=KPI200"
-        resp = requests.get(url)
-        soup = BeautifulSoup(resp.text, 'html.parser')
-
-        # 종목 테이블 파싱
-        table = soup.find('table', class_='type_1')
-        rows = table.find_all('tr')
-
-        codes = []
-        for row in rows:
-            cols = row.find_all('td')
-            if len(cols) >= 2:
-                name_col = cols[0].find('a')
-                if name_col:
-                    stock_name = name_col.text.strip()
-                    # 종목코드 추출 (네이버금융 종목 URL에서 코드 추출)
-                    href = name_col.get('href')
-                    # href 예: '/item/main.naver?code=005930'
-                    if 'code=' in href:
-                        code = href.split('code=')[1]
-                        codes.append((stock_name, code))
-
-        df = pd.DataFrame(codes, columns=['Name', 'Code'])
-        return df
-
-    def get_corp_code_map(self):
+    def get_financial_data_income_statement(self, stock_code):
         """
-        OpenDART API를 통해 상장회사 목록(고유번호 파일)을 다운로드한 후
-        stock_code -> corp_code 매핑을 생성
+        KIS API를 통해 손익계산서 데이터 조회
         """
-        url = f"https://opendart.fss.or.kr/api/corpCode.xml?crtfc_key={self.dart_api_key}"
-        response = requests.get(url)
-
-        if response.status_code != 200:
-            raise Exception(f"Error fetching corp code zip: HTTP {response.status_code}")
-
-        # 응답은 ZIP 파일 형태. 메모리에 로드 후 zipfile로 처리
-        with zipfile.ZipFile(io.BytesIO(response.content)) as z:
-            # ZIP 내부의 CORPCODE.xml 파일을 읽는다.
-            # 파일명이 CORPCODE.xml 인지 확인 (실제 제공되는 파일명은 보통 CORPCODE.xml)
-            for filename in z.namelist():
-                if filename.upper().endswith('.XML'):
-                    with z.open(filename) as xml_file:
-                        tree = ET.parse(xml_file)
-                        root = tree.getroot()
-                        # root 밑에 <list> 태그들이 기업 정보
-                        corp_code_map = {}
-                        for list_item in root.findall('list'):
-                            stock_code = list_item.find('stock_code').text.strip()
-                            corp_code = list_item.find('corp_code').text.strip()
-                            # stock_code가 없는 경우 비상장 회사일 수 있음
-                            # 또는 공백인 경우 제외
-                            if stock_code and stock_code != ' ':
-                                corp_code_map[stock_code] = corp_code
-                        print(f"Total corp codes fetched: {len(corp_code_map)}")
-                        return corp_code_map
-
-        raise Exception("No XML file found in the downloaded zip.")
-
-    def get_financial_data(self, corp_code, bsns_year, reprt_code):
-        """
-        OpenDART API를 이용해 해당 기업의 특정 사업연도와 보고서 코드에 대한 재무데이터 수집
-        연결재무제표(CFS) 우선 시도 후, 데이터 없을 경우 재무제표(OFS)로 재시도
-        """
-
-        financial_data = None
-        for fs_div in ['CFS', 'OFS']:  # CFS 먼저 시도, 없으면 OFS 시도
-            print(
-                f"bsns_year: {bsns_year}, reprt_code: {reprt_code}, fs_div: {fs_div} 사업보고서(1년): 11011, 반기보고서:11012, 1분기보고서:11013, 3분기보고서:11014")
-
-            url = "https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json"
-            params = {
-                'crtfc_key': self.dart_api_key,
-                'corp_code': corp_code,
-                'bsns_year': bsns_year,
-                'reprt_code': reprt_code,
-                'fs_div': fs_div
-            }
-            resp = None
-            for attempt in range(3):
-                try:
-                    resp = requests.get(url, params=params, timeout=10)
-                    resp.raise_for_status()
-                    break
-                except requests.exceptions.RequestException as e:
-                    print(f"Error fetching financial data for {corp_code} (fs_div: {fs_div}): {e}, retrying...")
-                    time.sleep(1)
-            if resp is None:
-                print(f"Failed to fetch data for {corp_code} (fs_div: {fs_div}) after multiple retries.")
-                continue  # 다음 fs_div 시도
-
-            data = resp.json()
-            if data.get('status') != '000':
-                print(f"Open DART API Error (fs_div: {fs_div}): {data.get('message')}")
-                continue  # 다음 fs_div 시도
-
-            items = data.get('list', [])
-            if not items:  # list가 비어있다면 다음 fs_div 시도
-                continue
-
-            financial_data = {}
-            for item in items:
-                account_nm = item.get('account_nm', '').strip()
-                sj_div = item.get('sj_div')
-                thstrm_amount = item.get('thstrm_amount', None)
-                try:
-                    thstrm_amount = float(thstrm_amount) if thstrm_amount else 0.0
-                except ValueError:
-                    thstrm_amount = 0.0
-
-                if sj_div == 'IS':
-                    #print(f"account_nm: {account_nm}, thstrm_amount: {thstrm_amount}")
-                    if account_nm == '수익(매출액)':
-                        financial_data['매출액'] = thstrm_amount
-                    elif account_nm == '영업이익(손실)':
-                        financial_data['영업이익'] = thstrm_amount
-                    elif account_nm == '당기순이익(손실)':
-                        financial_data['당기순이익'] = thstrm_amount
-                elif sj_div == 'BS':
-                    if account_nm == '자본총계':
-                        financial_data['기말자본총계'] = thstrm_amount
-                    elif account_nm == '자본금':
-                        financial_data['자본금'] = thstrm_amount
-            break  # CFS 혹은 OFS에서 데이터를 가져왔으면 반복문 탈출
-
-        # 이전 연도 데이터 가져오기 (평균 자본 계산을 위해)
-        if financial_data and int(bsns_year) == self.start_year:  # financial_data가 None이 아닌 경우에만 이전년도 데이터 요청
-            prev_bsns_year = str(int(bsns_year) - 1)
-            prev_year_data = self.get_financial_data(corp_code, prev_bsns_year, reprt_code)
-
-            if prev_year_data and '기말자본총계' in prev_year_data:
-                financial_data['기초자본총계'] = prev_year_data['기말자본총계']
-                financial_data['평균자본총계'] = (financial_data['기말자본총계'] + financial_data['기초자본총계']) / 2
-
-            # ROE 계산 (평균 자본 사용)
-            if '당기순이익' in financial_data and '평균자본총계' in financial_data and financial_data['평균자본총계'] != 0:
-                financial_data['ROE'] = financial_data['당기순이익'] / financial_data['평균자본총계'] * 100
+        url = ("https://openapi.koreainvestment.com:9443"
+               "/uapi/domestic-stock/v1/finance/income-statement")
+        headers = {
+            "Content-Type": "application/json; charset=utf-8",
+            "authorization": f"Bearer {self.kis_access_token}",
+            "appkey": self.kis_appkey,
+            "appsecret": self.kis_appsecret,
+            "tr_id": "FHKST66430200",
+            "custtype": "P",
+        }
+        params = {
+            "FID_DIV_CLS_CODE": "1",  # 분기
+            "fid_cond_mrkt_div_code": "J",  # 조건 시장 분류 코드
+            "fid_input_iscd": stock_code
+        }
+        response = requests.get(url, headers=headers, params=params)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get('rt_cd') == '0':
+                return data.get('output', [])
             else:
-                financial_data['ROE'] = None
+                print(f"API Error for {stock_code}: {data.get('msg1')}")
+                return []
+        else:
+            print(f"HTTP Error for {stock_code}: {response.status_code}")
+            return []
 
-        return financial_data
+    def get_financial_data_financial_ratio(self, stock_code):
+        """
+        KIS API를 통해 재무비율 데이터 조회
+        """
+        url = ("https://openapi.koreainvestment.com:9443/"
+               "uapi/domestic-stock/v1/finance/financial-ratio")
+        headers = {
+            "Content-Type": "application/json; charset=utf-8",
+            "authorization": f"Bearer {self.kis_access_token}",
+            "appkey": self.kis_appkey,
+            "appsecret": self.kis_appsecret,
+            "tr_id": "FHKST66430300",
+            "custtype": "P"
+        }
+        params = {
+            "FID_DIV_CLS_CODE": "1",  # 분기
+            "fid_cond_mrkt_div_code": "J",  # 조건 시장 분류 코드
+            "fid_input_iscd": stock_code
+        }
+        response = requests.get(url, headers=headers, params=params)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get('rt_cd') == '0':
+                return data.get('output', [])
+            else:
+                print(f"API Error for {stock_code}: {data.get('msg1')}")
+                return []
+        else:
+            print(f"HTTP Error for {stock_code}: {response.status_code}")
+            return []
 
-    def get_all_financial_data(self, kospi200_df):
+    def get_all_financial_data(self):
         """
         KOSPI200 종목 전체에 대한 재무데이터 수집
         """
         financial_records = []
-        total = len(kospi200_df)
-        for idx, row in kospi200_df.iterrows():
+        total = len(self.kospi200_df)
+        for idx, row in self.kospi200_df.iterrows():
             stock_code = row['Code']
-            corp_code = self.corp_code_map.get(stock_code)
-            if not corp_code:
-                print(f"Corp code not found for stock code: {stock_code}")
+            print(f"Processing {idx + 1}/{total}: {stock_code}")
+
+            # 손익계산서 데이터 가져오기
+            income_statements = self.get_financial_data_income_statement(stock_code)
+            time.sleep(0.05)
+            if not income_statements:
                 continue
 
-            for year in range(self.start_year, self.end_year + 1):
-                # 1분기:11013, 반기(2분기):11012, 3분기:11014, 4분기(사업보고서):11011
-                # OpenDART 문서에 따라 reprt_code 확인 필요
-                # *참고: 사업보고서(1년): 11011, 반기보고서:11012, 1분기보고서:11013, 3분기보고서:11014
-                # 여기서는 예시로 1,2,3,4분기 모두 시도
-                for reprt_code in ['11013', '11012', '11014', '11011']:
-                    print(f"year: {year}, reprt_code: {reprt_code}")
-                    financial = self.get_financial_data(corp_code, year, reprt_code)
-                    if financial:
-                        financial['Code'] = stock_code
-                        financial['Year'] = year
-                        financial['Report'] = reprt_code
-                        financial_records.append(financial)
-                    time.sleep(0.7)  # API 호출 제한 대비
-            print(f"Processed {idx + 1}/{total} stocks.")
+            # 재무비율 데이터 가져오기
+            financial_ratios = self.get_financial_data_financial_ratio(stock_code)
+            time.sleep(0.05)
+            if not financial_ratios:
+                continue
+
+            # 최근 4개 분기 데이터 추출
+            num_records = min(4, len(income_statements), len(financial_ratios))
+            for i in range(num_records):
+                inc = income_statements[i]
+                ratio = financial_ratios[i]
+                try:
+                    record = {
+                        'Code': stock_code,
+                        'YearMonth': inc.get('stac_yymm', ''),
+                        '매출액': float(inc.get('sale_account', '0').replace(',', '')),
+                        '영업이익': float(inc.get('bsop_prti', '0').replace(',', '')),
+                        'ROE': float(ratio.get('roe_val', '0').replace(',', ''))
+                    }
+                    financial_records.append(record)
+                except ValueError as ve:
+                    print(f"ValueError for {stock_code} in record {i}: {ve}")
+                    continue
+
         financial_df = pd.DataFrame(financial_records)
         return financial_df
 
@@ -216,3 +220,8 @@ class DataImporter:
         else:
             price_df = data
         return price_df
+
+if __name__ == "__main__":
+    importer = DataImporter(config_path='config.json')
+    financial_df = importer.get_all_financial_data()
+    print(financial_df.head())

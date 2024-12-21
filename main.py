@@ -16,25 +16,17 @@ def main():
     # 2. Data Importer 인스턴스 생성
     importer = DataImporter(config_path=config_path)
 
-    # 3. KOSPI200 리스트 수집
-    kospi200_df = importer.get_kospi200_list()
-    print(f"KOSPI200 종목 수: {len(kospi200_df)}")
+    # 3. KOSPI200 종목 리스트에 대한 매출, 영업이익, ROE 데이터 수집
+    financial_df = importer.get_all_financial_data()
+    print("Available columns:", financial_df.columns)
 
-    # 4. 재무데이터 수집
-    print("재무데이터 수집 중...")
-    # 긴급으로 3개만 추출
-    kospi200_df = kospi200_df.head(3)
-    financial_all = importer.get_all_financial_data(kospi200_df)
-    print(f"financial_all 모든 데이터 출력:\n {financial_all}")
-    # 데이터 확인
-    print("Available columns:", financial_all.columns)
-    return
-    # 5. 주가데이터 수집
+    # 4. 주가데이터 수집
     print("주가데이터 수집 중...")
-    tickers = [code + ".KS" for code in kospi200_df['Code']]
+    tickers = [code + ".KS" for code in financial_df['Code']]
     price_df = importer.get_price_data(tickers)
     print(f"수집된 주가 데이터 기간: {price_df.index.min()} ~ {price_df.index.max()}")
-
+    print(price_df)
+    return
     # 6. 팩터 계산
     factor_calc = FactorCalculator()
     factor_df = factor_calc.calculate_factors(financial_all, price_df)
