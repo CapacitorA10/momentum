@@ -19,8 +19,8 @@ class DataImporter:
         self.kis_appsecret = self.config['KIS_API']['appsecret']
         self.cano = self.config['KIS_API']['CANO']
         self.acnt_prdt_cd = self.config['KIS_API']['ACNT_PRDT_CD']
-        self.start_date = self.config['DATA']['start_date']
-        self.end_date = self.config['DATA']['end_date']
+        self.start_date = datetime.now() - timedelta(days=365 * 2)
+        self.end_date = datetime.now()
 
         # KOSPI200 종목 리스트 가져오기
         self.kospi200_df = self.get_kospi200_list()
@@ -225,3 +225,5 @@ if __name__ == "__main__":
     importer = DataImporter(config_path='config.json')
     financial_df = importer.get_all_financial_data()
     print(financial_df.head())
+##
+
