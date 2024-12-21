@@ -6,8 +6,7 @@ import pandas as pd
 import json
 import os
 
-##
-    # 1. config.json 로드
+##1. config.json 로드
 config_path = 'config.json'
 if not os.path.exists(config_path):
     raise FileNotFoundError(f"{config_path} not found.")
@@ -17,16 +16,16 @@ importer = DataImporter(config_path=config_path)
 
 # 3. KOSPI200 종목 리스트에 대한 매출, 영업이익, ROE 데이터 수집
 financial_df = importer.get_all_financial_data()
+# Year과 Report 컬럼 추가
+financial_df['Year'] = financial_df['YearMonth'].astype(str).str[:4].astype(int)
+financial_df['Report'] = financial_df['YearMonth'].astype(str).str[4:].astype(int)
 print("Available columns:", financial_df.columns)
 
 # 4. 주가데이터 수집
 print("주가데이터 수집 중...")
 tickers = [code + ".KS" for code in financial_df['Code']]
 price_df = importer.get_price_data(tickers)
-print(f"수집된 주가 데이터 기간: {price_df.index.min()} ~ {price_df.index.max()}")
-print(price_df)
-##
-# 6. 팩터 계산
+## 6. 팩터 계산
 factor_calc = FactorCalculator()
 factor_df = factor_calc.calculate_factors(financial_df, price_df)
 print("팩터 계산 완료.")
