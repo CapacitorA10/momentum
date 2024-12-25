@@ -9,7 +9,14 @@ def calculate_growth_rate(series):
     # 4분기 복리성장률 = (마지막값 / 첫값)^(1/4)-1
     if len(series) < 4:
         return np.nan
-    return (series.iloc[-1] / series.iloc[0]) ** (1 / 4) - 1
+    first = series.iloc[0]
+    last = series.iloc[-1]
+    if first == 0:
+        return np.nan
+    ratio = last / first
+    if ratio <= 0:
+        return -1
+    return ratio ** (1 / 4) - 1
 
 
 def calculate_rsi(price_series, period=30):
@@ -78,9 +85,20 @@ class FactorCalculator:
         ranked_df = factor_df.copy()
 
         for col in ['RevenueGrowth', 'OpIncomeGrowth', 'ROE', 'RSI']:
-            ranked_df[col + '_score'] = ranked_df[col].rank(method='first', ascending=False)
-            ranked_df[col + '_score'] = pd.qcut(ranked_df[col + '_score'], 5, labels=False) + 1  # 1~5
-            ranked_df[col + '_score'] = 6 - ranked_df[col + '_score']  # 상위에 높은 점수
+            if col in ['RevenueGrowth', 'OpIncomeGrowth']:
+                # 음수 값 별도처리
+                valid = ranked_df[col] >= 0
+                ranked_df.loc[valid, col + '_rank'] = ranked_df.loc[valid, col].rank(method='first', ascending=False)
+                ranked_df.loc[~valid, col + '_rank'] = 0 # 음수정장률은 최하위
+                # quintile 계산
+                ranked_df[col + '_score'] = pd.qcut(ranked_df.loc[valid, col + '_rank'], 5, labels=False) + 1  # 1~5
+                ranked_df[col + '_score'] = 6 - ranked_df[col + '_score']  # 상위에 높은 점수
+                # 음수값은 무조건 1점
+                ranked_df.loc[~valid, col + '_score'] = 1
+            else: # ROE, RSI
+                ranked_df[col + '_score'] = ranked_df[col].rank(method='first', ascending=False)
+                ranked_df[col + '_score'] = pd.qcut(ranked_df[col + '_score'], 5, labels=False) + 1  # 1~5
+                ranked_df[col + '_score'] = 6 - ranked_df[col + '_score']  # 상위에 높은 점수
 
         # 종합 점수 계산 (평균)
         ranked_df['TotalScore'] = ranked_df[
