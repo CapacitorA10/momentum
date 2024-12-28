@@ -188,7 +188,12 @@ class DataImporter:
             time.sleep(0.05)
             if not financial_ratios:
                 continue
-
+            # 2017년 데이터가 없다면 해당 종목은 제외
+            check_df = pd.DataFrame(income_statements)
+            has_2017_data = check_df['stac_yymm'].str.startswith('2017').any()
+            if not has_2017_data:
+                print(f"Skipping {stock_code} due to lack of 2017 data.")
+                continue
             # 최근 4개 분기 데이터 추출
             num_records = min(4, len(income_statements), len(financial_ratios))
             for i in range(num_records):
@@ -208,6 +213,7 @@ class DataImporter:
                     continue
 
         financial_df = pd.DataFrame(financial_records)
+
         return financial_df
 
     def get_price_data(self, tickers):
@@ -220,6 +226,8 @@ class DataImporter:
         else:
             price_df = data
         return price_df
+
+
 
 if __name__ == "__main__":
     importer = DataImporter(config_path='config.json')

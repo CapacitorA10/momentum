@@ -226,7 +226,7 @@ def _check_feasibility_sharpe(alpha, mu, Sigma, risk_free_rate,
 
     # 초과 수익률 벡터
     excess_returns = mu - risk_free_rate
-    print(f"Excess Returns: {excess_returns}")
+    #print(f"Excess Returns: {excess_returns}")
     # Sigma^(1/2) = L (Cholesky)
     L = np.linalg.cholesky(Sigma)
 

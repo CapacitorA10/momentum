@@ -51,7 +51,7 @@ returns_selected = returns_df[selected_tickers].dropna()
 
 
 ## 최적화 수행
-opt_result = optimize_portfolio(selected_stocks, returns_selected, risk_free_rate=0.0)
+opt_result = optimize_portfolio(selected_stocks, returns_selected, risk_free_rate=0.001)
 
 if opt_result is not None:
     print("최적화된 포트폴리오:")
