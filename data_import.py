@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from pykrx import stock
 
 class DataImporter:
-    def __init__(self, config_path='config.json'):
+    def __init__(self, config_path='config.json', rsi_period=30):
         # config.json 로드
         self.config_path = config_path
         self.config = self.load_config()
@@ -19,7 +19,9 @@ class DataImporter:
         self.kis_appsecret = self.config['KIS_API']['appsecret']
         self.cano = self.config['KIS_API']['CANO']
         self.acnt_prdt_cd = self.config['KIS_API']['ACNT_PRDT_CD']
-        self.start_date = datetime.now() - timedelta(days=365 * 2)
+
+        self.rsi_period = rsi_period
+        self.start_date = self.calculate_start_date()
         self.end_date = datetime.now()
 
         # KOSPI200 종목 리스트 가져오기
@@ -27,6 +29,17 @@ class DataImporter:
 
         # Access Token 발급 또는 기존 토큰 사용
         self.kis_access_token = self.get_kis_access_token()
+
+    def calculate_start_date(self):
+        """
+        RSI 산출에 필요한 시작 날짜 계산
+        :return: datetime
+        """
+        # 백테스팅 시작일 설정 (기본값: 2018년 2월 14일)
+        backtest_start_date = datetime(2018, 2, 14)
+        # RSI 산출 기간만큼 더 이전의 데이터를 포함하기 위해 조정
+        adjusted_start_date = backtest_start_date - timedelta(days=self.rsi_period + 30) # 휴일 버퍼 고려 +30
+        return adjusted_start_date
 
     def load_config(self):
         """
@@ -92,7 +105,9 @@ class DataImporter:
         """
         try:
             # pykrx의 get_index_portfolio 함수를 사용하여 DataFrame 반환
-            kospi200 = stock.get_index_portfolio_deposit_file(ticker = "1028")  # "1028"은 KOSPI200의 지수 코드
+            kospi200 = stock.get_index_portfolio_deposit_file(ticker = "1028",
+                                                              date=datetime.now().strftime("%Y%m%d"),
+                                                              alternative=True)  # "1028"은 KOSPI200의 지수 코드
             # kospi200 이 []인 경우
             if kospi200 == []:
                 print("KOSPI200 종목 리스트를 가져오지 못했습니다.")
