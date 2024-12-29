@@ -209,22 +209,24 @@ class DataImporter:
             if not has_2017_data:
                 print(f"Skipping {stock_code} due to lack of 2017 data.")
                 continue
-            # 최근 4개 분기 데이터 추출
-            num_records = min(4, len(income_statements), len(financial_ratios))
-            for i in range(num_records):
-                inc = income_statements[i]
-                ratio = financial_ratios[i]
+            # 2017년 이후의 데이터만 사용
+            for inc, ratio in zip(income_statements, financial_ratios):
                 try:
+                    # 2017년 이후의 데이터만 필터링
+                    year_month = inc.get('stac_yymm', '')
+                    if not year_month or int(year_month[:4]) < 2017:
+                        continue
+
                     record = {
                         'Code': stock_code,
-                        'YearMonth': inc.get('stac_yymm', ''),
+                        'YearMonth': year_month,
                         '매출액': float(inc.get('sale_account', '0').replace(',', '')),
                         '영업이익': float(inc.get('bsop_prti', '0').replace(',', '')),
                         'ROE': float(ratio.get('roe_val', '0').replace(',', ''))
                     }
                     financial_records.append(record)
                 except ValueError as ve:
-                    print(f"ValueError for {stock_code} in record {i}: {ve}")
+                    print(f"ValueError for {stock_code} in record {year_month}: {ve}")
                     continue
 
         financial_df = pd.DataFrame(financial_records)
