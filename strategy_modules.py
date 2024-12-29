@@ -99,15 +99,17 @@ class FactorCalculator:
                 ranked_df[col + '_score'] = ranked_df[col].rank(method='first', ascending=False)
                 ranked_df[col + '_score'] = pd.qcut(ranked_df[col + '_score'], 5, labels=False) + 1  # 1~5
                 ranked_df[col + '_score'] = 6 - ranked_df[col + '_score']  # 상위에 높은 점수
+                # RSI 70 이상은 1점(과매수 구간)
+                ranked_df.loc[ranked_df[col] >= 70, col + '_score'] = 1
 
         # 종합 점수 계산 (평균)
         ranked_df['TotalScore'] = ranked_df[
             ['RevenueGrowth_score', 'OpIncomeGrowth_score', 'ROE_score', 'RSI_score']].mean(axis=1)
 
-        # 상위 20% 종목 필터
-        cutoff = ranked_df['TotalScore'].quantile(0.8)
-        selected = ranked_df[ranked_df['TotalScore'] >= cutoff].reset_index(drop=True)
-        return selected
+        # 상위 11개 종목 추출
+        ranked_df = ranked_df.sort_values('TotalScore', ascending=False).head(11)
+        return ranked_df
+
 
 
 def optimize_portfolio(selected_stocks, returns_df, approach='bisection',
