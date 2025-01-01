@@ -32,13 +32,13 @@ class DataImporter:
 
     def calculate_start_date(self):
         """
-        RSI 산출에 필요한 시작 날짜 계산
+        Yfinance 산출에 필요한 시작 날짜 계산
         :return: datetime
         """
-        # 백테스팅 시작일 설정 (기본값: 2018년 2월 14일)
-        backtest_start_date = datetime(2018, 2, 14)
-        # RSI 산출 기간만큼 더 이전의 데이터를 포함하기 위해 조정
-        adjusted_start_date = backtest_start_date - timedelta(days=self.rsi_period + 30) # 휴일 버퍼 고려 +30
+        # 백테스팅 시작일 설정 (2017년 2분기~2018년 1분기 데이터부터 존재하므로, +45일 적용하여 2018 5월 15일부터 시작)
+        backtest_start_date = datetime(2018, 5, 15)
+        # 최소 2년간의 월간 수익률 기반이 필요
+        adjusted_start_date = backtest_start_date - timedelta(days=365 * 2)
         return adjusted_start_date
 
     def load_config(self):

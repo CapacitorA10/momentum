@@ -4,6 +4,13 @@ import pandas as pd
 import numpy as np
 import cvxpy as cp
 
+def calculate_2years_return(price_df):
+    min_date = price_df.index.max() - pd.DateOffset(years=2)
+    returns_df = price_df.pct_change()
+    returns_df = returns_df[returns_df.index >= min_date]  # 2년 이내 데이터만 필터링
+    returns_df = returns_df.dropna(axis=1, how='any')
+    return returns_df
+
 
 def calculate_growth_rate(series):
     # 4분기 복리성장률 = (마지막값 / 첫값)^(1/4)-1
