@@ -203,18 +203,18 @@ class DataImporter:
             time.sleep(0.05)
             if not financial_ratios:
                 continue
-            # 2017년 데이터가 없다면 해당 종목은 제외
+            # 2017년 6월 데이터가 없다면 해당 종목은 제외
             check_df = pd.DataFrame(income_statements)
-            has_2017_data = check_df['stac_yymm'].str.startswith('2017').any()
+            has_2017_data = check_df['stac_yymm'].str.startswith('201706').any()
             if not has_2017_data:
-                print(f"Skipping {stock_code} due to lack of 2017 data.")
+                print(f"Skipping {stock_code} due to lack of 2017-06 data.")
                 continue
             # 2017년 이후의 데이터만 사용
             for inc, ratio in zip(income_statements, financial_ratios):
                 try:
                     # 2017년 이후의 데이터만 필터링
                     year_month = inc.get('stac_yymm', '')
-                    if not year_month or int(year_month[:4]) < 2017:
+                    if not year_month or int(year_month[:6]) < 201706:
                         continue
 
                     record = {
