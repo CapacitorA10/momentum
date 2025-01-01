@@ -244,6 +244,23 @@ class DataImporter:
             price_df = data
         return price_df
 
+    def load_last_4_quarters(self, financial_df, yearmonth):
+        """
+        financial_df에서 yearmonth를 기준으로 최근 4개 분기 데이터를 가져오는 함수
+        yearmonth: 'YYYYMM' 형식의 문자열
+        ex) 202306
+        """
+        year = int(yearmonth[:4])
+        quarter = int(yearmonth[4:]) // 3
+        if quarter == 1:
+            quarters = [f"{year - 1}06", f"{year - 1}09", f"{year - 1}12", yearmonth]
+        elif quarter == 2:
+            quarters = [f"{year - 1}09", f"{year - 1}12", f"{year}03", yearmonth]
+        elif quarter == 3:
+            quarters = [f"{year - 1}12", f"{year}03", f"{year}06", yearmonth]
+        else:
+            quarters = [f"{year}03", f"{year}06", f"{year}09", yearmonth]
+        return financial_df[financial_df['YearMonth'].isin(quarters)]
 
 
 if __name__ == "__main__":
