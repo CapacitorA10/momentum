@@ -37,6 +37,7 @@ print("팩터 계산 완료.")
 common_tickers = set(factor_df['Code']).intersection(set(returns_df.columns.str.replace(".KS", "", regex=False)))
 common_tickers = list(common_tickers)
 factor_df = factor_df[factor_df['Code'].isin(common_tickers)]
+returns_df.columns = returns_df.columns.str.replace(".KS", "", regex=False)
 returns_df = returns_df[common_tickers]
 
 # 7. 팩터 랭킹 및 상위종목 선별
