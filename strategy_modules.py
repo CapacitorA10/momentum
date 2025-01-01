@@ -13,10 +13,10 @@ def calculate_2years_return(price_df):
 
 
 def calculate_growth_rate(series):
-    # 4분기 복리성장률 = (마지막값 / 첫값)^(1/4)-1
+    # 4분기 복리성장률 = 뒤에서 4번째 값 / 첫번째 값의 1/4 제곱 - 1
     if len(series) < 4:
         return np.nan
-    first = series.iloc[0]
+    first = series.iloc[-4]
     last = series.iloc[-1]
     if first == 0:
         return np.nan
