@@ -5,6 +5,7 @@ from strategy_modules import FactorCalculator, optimize_portfolio, calculate_2ye
 import pandas as pd
 import json
 import os
+from datetime import datetime
 
 ##1. config.json 로드
 config_path = 'config.json'
@@ -26,8 +27,10 @@ print("주가데이터 수집 중...")
 tickers = [code + ".KS" for code in financial_df['Code']]
 price_df = importer.get_price_data(tickers)
 
-# 5. 2년치 기대수익률 계산
-returns_df = calculate_2years_return(price_df)
+# 5. 2년치 기대수익률 계산, 현재 날짜로부터 2년 전까지
+start_date = datetime.now().replace(year=datetime.now().year - 2)
+end_date = datetime.now()
+returns_df = calculate_2years_return(price_df, start_date=start_date, end_date=end_date)
 
 ## 6. 팩터 계산
 factor_calc = FactorCalculator()

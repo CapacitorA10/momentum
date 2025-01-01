@@ -4,13 +4,13 @@ import pandas as pd
 import numpy as np
 import cvxpy as cp
 
-def calculate_2years_return(price_df):
-    min_date = price_df.index.max() - pd.DateOffset(years=2)
+def calculate_2years_return(price_df, start_date, end_date):
     returns_df = price_df.pct_change()
-    returns_df = returns_df[returns_df.index >= min_date]  # 2년 이내 데이터만 필터링
+    # 월간 수익률로 보정
+    returns_df = (1 + returns_df).resample('ME').prod() - 1
+    returns_df = returns_df[(returns_df.index >= start_date) & (returns_df.index <= end_date)]
     returns_df = returns_df.dropna(axis=1, how='any')
     return returns_df
-
 
 def calculate_growth_rate(series):
     # 4분기 복리성장률 = 뒤에서 4번째 값 / 첫번째 값의 1/4 제곱 - 1
