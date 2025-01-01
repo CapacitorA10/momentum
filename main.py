@@ -17,9 +17,6 @@ importer = DataImporter(config_path=config_path)
 
 # 3. KOSPI200 종목 리스트에 대한 매출, 영업이익, ROE 데이터 수집
 financial_df = importer.get_all_financial_data()
-# Year과 Report 컬럼 추가
-financial_df['Year'] = financial_df['YearMonth'].astype(str).str[:4].astype(int)
-financial_df['Report'] = financial_df['YearMonth'].astype(str).str[4:].astype(int)
 print("Available columns:", financial_df.columns)
 
 # 4. 주가데이터 수집

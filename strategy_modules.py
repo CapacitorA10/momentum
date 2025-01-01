@@ -59,7 +59,7 @@ class FactorCalculator:
         }
 
         for code, group in grouped:
-            group = group.sort_values(['YearMonth', 'Report'])
+            group = group.sort_values(['YearMonth'])
 
             # 매출액과 영업이익의 성장률 계산
             rev_growth = calculate_growth_rate(group['매출액'])
