@@ -78,7 +78,7 @@ class FactorCalculator:
             roe = group['ROE'].iloc[-1] if not group['ROE'].isnull().all() else np.nan
 
             # RSI 계산
-            ticker = code + ".KS"
+            ticker = code + ".KQ"
             if ticker in price_df.columns:
                 rsi_series = calculate_rsi(price_df[ticker])
                 rsi_val = rsi_series.iloc[-1] if not rsi_series.dropna().empty else np.nan

@@ -105,7 +105,7 @@ class DataImporter:
         """
         try:
             # pykrx의 get_index_portfolio 함수를 사용하여 DataFrame 반환
-            kospi200 = stock.get_index_portfolio_deposit_file(ticker = "1028",
+            kospi200 = stock.get_index_portfolio_deposit_file(ticker = "2203",
                                                               date=datetime.now().strftime("%Y%m%d"),
                                                               alternative=True)  # "1028"은 KOSPI200의 지수 코드
             # kospi200 이 []인 경우
@@ -266,7 +266,7 @@ class DataImporter:
         """
         yfinance를 통해 특정 종목의 주가 데이터를 가져오는 함수
         """
-        ticker = stock_code if stock_code.startswith('^') else stock_code + ".KS"
+        ticker = stock_code if stock_code.startswith('^') else stock_code + ".KQ"
         data = yf.download(ticker, start=start_date, end=end_date)
         data['Cumulative Return'] = (1 + data['Adj Close'].pct_change().fillna(0)).cumprod()
         return data[['Cumulative Return', 'Adj Close']]

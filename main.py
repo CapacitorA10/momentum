@@ -21,7 +21,7 @@ print("Available columns:", financial_df.columns)
 
 # 4. 주가데이터 수집
 print("주가데이터 수집 중...")
-tickers = [code + ".KS" for code in financial_df['Code']]
+tickers = [code + ".KQ" for code in financial_df['Code']]
 price_df = importer.get_price_data(tickers)
 
 # 5. 2년치 기대수익률 계산, 현재 날짜로부터 2년 전까지
@@ -34,10 +34,10 @@ factor_calc = FactorCalculator()
 factor_df = factor_calc.calculate_factors(financial_df, price_df)
 print("팩터 계산 완료.")
 # 교집합만 남기기
-common_tickers = set(factor_df['Code']).intersection(set(returns_df.columns.str.replace(".KS", "", regex=False)))
+common_tickers = set(factor_df['Code']).intersection(set(returns_df.columns.str.replace(".KQ", "", regex=False)))
 common_tickers = list(common_tickers)
 factor_df = factor_df[factor_df['Code'].isin(common_tickers)]
-returns_df.columns = returns_df.columns.str.replace(".KS", "", regex=False)
+returns_df.columns = returns_df.columns.str.replace(".KQ", "", regex=False)
 returns_df = returns_df[common_tickers]
 
 # 7. 팩터 랭킹 및 상위종목 선별
@@ -48,7 +48,7 @@ print(f"선정된 종목 수: {len(selected_stocks)}")
 # 선택된 종목의 수익률 필터링
 selected_tickers = [code for code in selected_stocks['Code']]
 # returns_df의 열 이름과 selected_tickers의 일치 여부 확인 및 수정
-returns_df.columns = returns_df.columns.str.replace(".KS", "", regex=False)  # ".KS" 제거
+returns_df.columns = returns_df.columns.str.replace(".KQ", "", regex=False)  # ".KQ" 제거
 returns_selected = returns_df[selected_tickers].dropna()
 
 

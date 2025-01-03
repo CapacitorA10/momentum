@@ -25,8 +25,8 @@ def get_quarterly_dates(current_date):
 
 # 기간 손익 계산
 def calculate_period_returns(price_df, tickers, weights, start_date, end_date):
-    # 기간에 맞게 주가 필터링, 'KS' 제거
-    price_df.columns = price_df.columns.str.replace(".KS", "", regex=False)
+    # 기간에 맞게 주가 필터링, .KQ' 제거
+    price_df.columns = price_df.columns.str.replace(".KQ", "", regex=False)
     price_df = price_df.loc[start_date:end_date, tickers]
     daily_returns = price_df.pct_change().fillna(0)
 
@@ -47,7 +47,7 @@ START_DATE = datetime(2018, 5, 15)
 END_DATE = datetime(2024, 12, 30)
 
 financial_df_all = data_importer.get_all_financial_data()
-price_df_all = data_importer.get_price_data([code + ".KS" for code in financial_df_all['Code']])
+price_df_all = data_importer.get_price_data([code + ".KQ" for code in financial_df_all['Code']])
 
 ## 백테스팅 진행
 initial_money = 10000000 # 1천만원
@@ -72,16 +72,16 @@ while current_date <= END_DATE:
 
     # 3. 팩터 계산 및 데이터 정렬
     factor_df = factor_calc.calculate_factors(financial_df, price_df)
-    common_tickers = set(factor_df['Code']).intersection(set(returns_df.columns.str.replace(".KS", "", regex=False)))
+    common_tickers = set(factor_df['Code']).intersection(set(returns_df.columns.str.replace(".KQ", "", regex=False)))
     common_tickers = list(common_tickers)
     factor_df = factor_df[factor_df['Code'].isin(common_tickers)].dropna()
-    returns_df.columns = returns_df.columns.str.replace(".KS", "", regex=False)
+    returns_df.columns = returns_df.columns.str.replace(".KQ", "", regex=False)
     returns_df = returns_df[common_tickers]
 
     # 4. 팩터 랭킹 및 상위종목 선별 후 포트폴리오 최적화
     selected_stocks = factor_calc.rank_stocks(factor_df)
     selected_tickers = [code for code in selected_stocks['Code']]
-    returns_df.columns = returns_df.columns.str.replace(".KS", "", regex=False)
+    returns_df.columns = returns_df.columns.str.replace(".KQ", "", regex=False)
     returns_selected = returns_df[selected_tickers].dropna()
     opt_result, sharpe_ratio = optimize_portfolio(selected_stocks, returns_selected, risk_free_rate=0.001)
 
