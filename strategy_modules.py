@@ -12,6 +12,15 @@ def calculate_2years_return(price_df, start_date, end_date):
     returns_df = returns_df.dropna(axis=1, how='any')
     return returns_df
 
+def normalize_series(series):
+    """
+    최소-최대 정규화를 적용하여 [0, 1] 구간으로 변환.
+    모든 값이 동일하거나 NaN일 경우 NaN 반환.
+    """
+    if series.nunique() <= 1 or series.isna().all():
+        return pd.Series([0] * len(series), index=series.index)  # 모든 값 동일시 0으로 설정
+    return (series - series.min()) / (series.max() - series.min())
+
 def calculate_growth_rate(series):
     # 4분기 복리성장률 = 뒤에서 4번째 값 / 첫번째 값의 1/4 제곱 - 1
     if len(series) < 4:
@@ -85,6 +94,8 @@ class FactorCalculator:
         factor_df = pd.DataFrame(factor_dict)
         return factor_df
 
+
+
     def rank_stocks(self, factor_df):
         """
         각 Factor별 Quintile 나눔 후 1~5점 할당 (5점: 상위 20%, 1점: 하위 20%)
@@ -93,29 +104,27 @@ class FactorCalculator:
 
         for col in ['RevenueGrowth', 'OpIncomeGrowth', 'ROE', 'RSI']:
             if col in ['RevenueGrowth', 'OpIncomeGrowth']:
-                # 음수 값 별도처리
-                valid = ranked_df[col] >= 0
-                ranked_df.loc[valid, col + '_rank'] = ranked_df.loc[valid, col].rank(method='first', ascending=False)
-                ranked_df.loc[~valid, col + '_rank'] = 0 # 음수정장률은 최하위
-                # quintile 계산
-                ranked_df[col + '_score'] = pd.qcut(ranked_df.loc[valid, col + '_rank'], 5, labels=False) + 1  # 1~5
-                ranked_df[col + '_score'] = 6 - ranked_df[col + '_score']  # 상위에 높은 점수
-                # 음수값은 무조건 1점
-                ranked_df.loc[~valid, col + '_score'] = 1
-            else: # ROE, RSI
+                # 음수 값 정규화 처리
+                ranked_df[col + '_normalized'] = normalize_series(ranked_df[col])
+                ranked_df[col + '_rank'] = ranked_df[col + '_normalized'].rank(method='first', ascending=False)
+                ranked_df[col + '_score'] = 5 - pd.qcut(ranked_df[col + '_rank'], 5, labels=False,
+                                                    duplicates="drop")   # 5~1
+            else:  # ROE, RSI
+                if ranked_df[col].isna().all():  # 모든 값이 NaN일 경우
+                    ranked_df[col + '_score'] = 1
+                    continue
+
                 ranked_df[col + '_score'] = ranked_df[col].rank(method='first', ascending=False)
-                ranked_df[col + '_score'] = pd.qcut(ranked_df[col + '_score'], 5, labels=False) + 1  # 1~5
-                ranked_df[col + '_score'] = 6 - ranked_df[col + '_score']  # 상위에 높은 점수
-                # RSI 70 이상은 1점(과매수 구간)
-                ranked_df.loc[ranked_df[col] >= 70, col + '_score'] = 1
+                ranked_df[col + '_score'] = 5 - pd.qcut(ranked_df[col + '_score'], 5, labels=False,
+                                                    duplicates="drop")  # 5~1
+                ranked_df.loc[ranked_df[col] >= 70, col + '_score'] = 1  # RSI 70 이상은 1점
 
         # 종합 점수 계산 (평균)
         ranked_df['TotalScore'] = ranked_df[
-            ['RevenueGrowth_score', 'OpIncomeGrowth_score', 'ROE_score', 'RSI_score']].mean(axis=1)
+            ['RevenueGrowth_score', 'OpIncomeGrowth_score', 'ROE_score', 'RSI_score']
+        ].mean(axis=1)
 
-        # 상위 11개 종목 추출
-        ranked_df = ranked_df.sort_values('TotalScore', ascending=False).head(11)
-        return ranked_df
+        return ranked_df.sort_values('TotalScore', ascending=False).head(11)
 
 
 
