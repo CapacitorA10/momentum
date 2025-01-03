@@ -32,6 +32,7 @@ pip install -r requirements.txt
 
 ### 2. **필수 파일 구성**
 - config.json:API 키 저장 및 설정
+- **한국투자증권 API KEY 필요** 
 ```bash
 {
     "KIS_API": {
