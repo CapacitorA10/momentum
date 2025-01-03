@@ -125,3 +125,69 @@ plt.show(block=True)
 
 plt.close()
 # CAGR, MDD, Sharpe Ratio 계산 필요
+import numpy as np
+
+# CAGR (Compound Annual Growth Rate) 계산 함수
+def calculate_cagr(initial_value, final_value, years):
+    """
+    :param initial_value: 초기 자산
+    :param final_value: 최종 자산
+    :param years: 투자 기간 (연 단위)
+    :return: CAGR (%)
+    """
+    return ((final_value / initial_value) ** (1 / years) - 1) * 100
+
+# MDD (Maximum Drawdown) 계산 함수
+def calculate_mdd(value_history):
+    """
+    :param value_history: 포트폴리오의 일별 가치 시계열 (Series)
+    :return: MDD (%)
+    """
+    running_max = value_history.cummax()
+    drawdowns = (value_history / running_max) - 1
+    max_drawdown = drawdowns.min()
+    return max_drawdown * 100
+
+# Sharpe Ratio 계산 함수
+def calculate_sharpe_ratio(daily_returns, risk_free_rate=0.001):
+    """
+    :param daily_returns: 일별 수익률 (Series)
+    :param risk_free_rate: 무위험 수익률 (연 단위, 기본값: 0.1%)
+    :return: Sharpe Ratio
+    """
+    excess_daily_returns = daily_returns - (risk_free_rate / 252)  # 1년 = 252 거래일 기준
+    return np.mean(excess_daily_returns) / np.std(excess_daily_returns, ddof=1)
+
+# 최종 평가 계산
+total_years = (daily_value_history.index.max() - daily_value_history.index.min()).days / 365.25
+cagr = calculate_cagr(initial_money, current_money, total_years)
+mdd = calculate_mdd(daily_value_history["PortfolioValue"])
+daily_portfolio_returns = daily_value_history["PortfolioValue"].pct_change().dropna()
+sharpe_ratio = calculate_sharpe_ratio(daily_portfolio_returns)
+
+# BM (KOSPI Index) 성과 계산
+kospi_returns = kospi_data['Cumulative Return'].pct_change().dropna()
+
+# BM의 CAGR 계산
+bm_initial_value = kospi_data['Cumulative Return'].iloc[0] * initial_money
+bm_final_value = kospi_data['Cumulative Return'].iloc[-1] * initial_money
+bm_cagr = calculate_cagr(bm_initial_value, bm_final_value, total_years)
+
+# BM의 MDD 계산
+bm_mdd = calculate_mdd(kospi_data['Cumulative Return'] * initial_money)
+
+# BM의 Sharpe Ratio 계산
+bm_sharpe_ratio = calculate_sharpe_ratio(kospi_returns)
+
+# 결과 출력
+print(f"Portfolio Performance:")
+print(f" - CAGR (연평균 성장률): {cagr:.2f}%")
+print(f" - MDD (최대 손실률): {mdd:.2f}%")
+print(f" - Sharpe Ratio: {sharpe_ratio:.2f}")
+print()
+print(f"Benchmark (KOSPI) Performance:")
+print(f" - CAGR (연평균 성장률): {bm_cagr:.2f}%")
+print(f" - MDD (최대 손실률): {bm_mdd:.2f}%")
+print(f" - Sharpe Ratio: {bm_sharpe_ratio:.2f}")
+##
+
