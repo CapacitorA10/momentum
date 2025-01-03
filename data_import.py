@@ -262,6 +262,15 @@ class DataImporter:
             quarters = [f"{year}03", f"{year}06", f"{year}09", yearmonth]
         return financial_df[financial_df['YearMonth'].isin(quarters)]
 
+    def fetch_stock_price(self, stock_code, start_date, end_date):
+        """
+        yfinance를 통해 특정 종목의 주가 데이터를 가져오는 함수
+        """
+        ticker = stock_code if stock_code.startswith('^') else stock_code + ".KS"
+        data = yf.download(ticker, start=start_date, end=end_date)
+        data['Cumulative Return'] = (1 + data['Adj Close'].pct_change().fillna(0)).cumprod()
+        return data[['Cumulative Return', 'Adj Close']]
+
 
 if __name__ == "__main__":
     importer = DataImporter(config_path='config.json')
