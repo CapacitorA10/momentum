@@ -40,7 +40,7 @@ def calculate_period_returns(price_df, tickers, weights, start_date, end_date):
 
 ## 백테스트 초기 셋업
 config_path = 'config.json'
-data_importer = DataImporter(config_path=config_path)
+data_importer = DataImporter(config_path=config_path, rsi_period=45)
 factor_calc = FactorCalculator()
 
 START_DATE = datetime(2018, 5, 15)
