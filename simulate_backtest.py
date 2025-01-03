@@ -54,6 +54,7 @@ initial_money = 10000000 # 1천만원
 current_money = initial_money
 money_history = []
 daily_value_history = pd.DataFrame()
+portfolio_weights_history = pd.DataFrame()
 date_history = []
 current_date = START_DATE
 
@@ -86,6 +87,12 @@ while current_date <= END_DATE:
 
     # 5. 포트폴리오 비중에 따른 수익 계산
     weights = opt_result['Weight'].values
+    weights_df = pd.DataFrame({
+        'Date': [current_date] * len(selected_tickers),
+        'Code': selected_tickers,
+        'Weight': weights
+    })
+    portfolio_weights_history = pd.concat([portfolio_weights_history, weights_df], ignore_index=True)
 
     # 기간 수익률 계산
     rebalancing_end_date = current_date + relativedelta(months=3)
@@ -106,18 +113,37 @@ while current_date <= END_DATE:
     # 다음 분기로 이동
     current_date += relativedelta(months=3)
 
+# 잔여 후처리
+portfolio_weights_history['Quarter'] = portfolio_weights_history['Date'].dt.to_period('Q')
 ## 그래프 그리기
+
 # BM(코스피) 데이터 가져오기
 kospi_data = data_importer.fetch_stock_price("^KS200", daily_value_history.index.min(), daily_value_history.index.max())
 
-plt.plot(daily_value_history.index, daily_value_history["PortfolioValue"], label="Portfolio Value", color="blue")
-plt.plot(kospi_data.index, kospi_data["Cumulative Return"] * initial_money, label="KOSPI (Cumulative Return)", color="green")
+# 분기별 종목 비중 데이터 피벗
+weights_pivot = portfolio_weights_history.pivot_table(
+    index='Quarter', columns='Code', values='Weight', aggfunc='sum', fill_value=0
+)
+# Figure 생성
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 7), gridspec_kw={'width_ratios': [3, 2]})
 
-plt.title("Portfolio Value vs KOSPI Index", fontsize=16)
-plt.xlabel("Date", fontsize=12)
-plt.ylabel("Portfolio Value (KRW)", fontsize=12)
-plt.grid(True)
-plt.legend()
+# Portfolio Value (Line Chart)
+ax1.plot(daily_value_history.index, daily_value_history["PortfolioValue"], label="Portfolio Value", color="blue")
+ax1.plot(kospi_data.index, kospi_data["Cumulative Return"] * initial_money, label="KOSPI (Cumulative Return)", color="green")
+ax1.set_title("Portfolio Value Over Time", fontsize=16)
+ax1.set_xlabel("Date", fontsize=12)
+ax1.set_ylabel("Portfolio Value (KRW)", fontsize=12)
+ax1.grid(True)
+ax1.legend()
+
+# Investment Weights (Bar Chart - Stacked)
+weights_pivot.plot(kind='bar', stacked=True, ax=ax2, colormap='tab20')
+ax2.set_title("Portfolio Weights by Quarter", fontsize=16)
+ax2.set_xlabel("Quarter", fontsize=12)
+ax2.set_ylabel("Weight (%)", fontsize=12)
+ax2.legend(title="Ticker", bbox_to_anchor=(1.05, 1), loc='upper left')
+
+plt.tight_layout()
 plt.show(block=True)
 
 
