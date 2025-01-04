@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from pykrx import stock
 
 class DataImporter:
-    def __init__(self, config_path='config.json', rsi_period=30):
+    def __init__(self, config_path='config.json', start_date=datetime(2018, 5, 15), rsi_period=30):
         # config.json 로드
         self.config_path = config_path
         self.config = self.load_config()
@@ -21,7 +21,7 @@ class DataImporter:
         self.acnt_prdt_cd = self.config['KIS_API']['ACNT_PRDT_CD']
 
         self.rsi_period = rsi_period
-        self.start_date = self.calculate_start_date()
+        self.start_date = start_date
         self.end_date = datetime.now()
 
         # KOSPI200 종목 리스트 가져오기
@@ -29,17 +29,6 @@ class DataImporter:
 
         # Access Token 발급 또는 기존 토큰 사용
         self.kis_access_token = self.get_kis_access_token()
-
-    def calculate_start_date(self):
-        """
-        Yfinance 산출에 필요한 시작 날짜 계산
-        :return: datetime
-        """
-        # 백테스팅 시작일 설정 (2017년 2분기~2018년 1분기 데이터부터 존재하므로, +45일 적용하여 2018 5월 15일부터 시작)
-        backtest_start_date = datetime(2018, 5, 15)
-        # 최소 2년간의 월간 수익률 기반이 필요
-        adjusted_start_date = backtest_start_date - timedelta(days=365 * 2)
-        return adjusted_start_date
 
     def load_config(self):
         """
@@ -237,7 +226,7 @@ class DataImporter:
         """
         yfinance를 통해 일별 주가 다운로드
         """
-        data = yf.download(tickers, start=self.start_date, end=self.end_date)
+        data = yf.download(tickers, start=self.start_date-timedelta(days=365*2), end=self.end_date)
         if isinstance(data.columns, pd.MultiIndex):
             price_df = data['Adj Close']
         else:
