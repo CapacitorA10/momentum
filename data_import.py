@@ -24,9 +24,6 @@ class DataImporter:
         self.start_date = start_date
         self.end_date = datetime.now()
 
-        # KOSPI200 종목 리스트 가져오기
-        self.kospi200_df = self.get_kospi200_list()
-
         # Access Token 발급 또는 기존 토큰 사용
         self.kis_access_token = self.get_kis_access_token()
 
@@ -88,15 +85,16 @@ class DataImporter:
         else:
             raise Exception(f"Failed to obtain access token: {response.text}")
 
-    def get_kospi200_list(self):
+    def get_kospi200_list(self, target_date=datetime.now().strftime("%Y%m%d")):
         """
         pykrx를 사용하여 KOSPI200 종목 리스트를 가져오는 함수
+        2014년 5월 1일 이후의 데이터만 존재
         """
         try:
             # pykrx의 get_index_portfolio 함수를 사용하여 DataFrame 반환
             kospi200 = stock.get_index_portfolio_deposit_file(ticker = "2203",
-                                                              date=datetime.now().strftime("%Y%m%d"),
-                                                              alternative=True)  # "1028"은 KOSPI200의 지수 코드
+                                                              date=target_date,
+                                                              alternative=True)  # "2203"은 KOSDAQ 150의 지수 코드
             # kospi200 이 []인 경우
             if kospi200 == []:
                 print("KOSPI200 종목 리스트를 가져오지 못했습니다.")
@@ -171,13 +169,14 @@ class DataImporter:
             print(f"HTTP Error for {stock_code}: {response.status_code}")
             return []
 
-    def get_all_financial_data(self):
+    def get_all_financial_data(self, date=datetime.now()):
         """
-        KOSPI200 종목 전체에 대한 재무데이터 수집
+        구성 종목 전체에 대한 재무데이터 수집
         """
+        stock_list = self.get_kospi200_list(date.strftime("%Y%m%d"))
         financial_records = []
-        total = len(self.kospi200_df)
-        for idx, row in self.kospi200_df.iterrows():
+        total = len(stock_list)
+        for idx, row in stock_list.iterrows():
             stock_code = row['Code']
             print(f"Processing {idx + 1}/{total}: {stock_code}")
 
@@ -263,7 +262,9 @@ class DataImporter:
 
 if __name__ == "__main__":
     importer = DataImporter(config_path='config.json')
-    financial_df = importer.get_all_financial_data()
-    print(financial_df.head())
+    df = importer.get_kospi200_list(target_date='20180515')
+    financial_df = importer.get_all_financial_data(date=datetime(2018, 5, 15))
+    print(df.describe())
+    print(financial_df.describe())
 ##
 
