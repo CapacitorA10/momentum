@@ -7,6 +7,7 @@ import json
 import os
 import time
 from datetime import datetime, timedelta
+from dateutil.relativedelta import relativedelta
 from pykrx import stock
 
 class DataImporter:
@@ -169,15 +170,37 @@ class DataImporter:
             print(f"HTTP Error for {stock_code}: {response.status_code}")
             return []
 
-    def get_all_financial_data(self, date=datetime.now()):
+    def get_all_financial_data(self, start_date, end_date=datetime.now()):
         """
         구성 종목 전체에 대한 재무데이터 수집
         """
-        stock_list = self.get_kospi200_list(date.strftime("%Y%m%d"))
+        #stock_list = self.get_kospi200_list(xx.strftime("%Y%m%d"))
+        all_stock_codes = set()
+        date_stock_dict = {}
+        current_date = start_date
+
+        # 3개월 단위로 데이터 수집
+        while current_date <= end_date:
+            formatted_date = current_date.strftime("%Y%m%d")
+            stock_list_df = self.get_kospi200_list(formatted_date)
+            if not stock_list_df.empty:
+                stock_codes = stock_list_df['Code'].tolist()
+                all_stock_codes.update(stock_codes)
+                date_stock_dict[formatted_date] = stock_codes
+            else:
+                print(f"Skipping {formatted_date} due to lack of INDEX list.")
+
+            current_date += relativedelta(months=3)
+
+        stock_list = list(all_stock_codes)
+        print(stock_list)
+        print(date_stock_dict)
+
+
         financial_records = []
         total = len(stock_list)
-        for idx, row in stock_list.iterrows():
-            stock_code = row['Code']
+        for idx, row in enumerate(stock_list):
+            stock_code = row
             print(f"Processing {idx + 1}/{total}: {stock_code}")
 
             # 손익계산서 데이터 가져오기
@@ -219,7 +242,7 @@ class DataImporter:
 
         financial_df = pd.DataFrame(financial_records)
 
-        return financial_df
+        return financial_df, date_stock_dict
 
     def get_price_data(self, tickers):
         """
@@ -261,10 +284,13 @@ class DataImporter:
 
 
 if __name__ == "__main__":
-    importer = DataImporter(config_path='config.json')
-    df = importer.get_kospi200_list(target_date='20180515')
-    financial_df = importer.get_all_financial_data(date=datetime(2018, 5, 15))
-    print(df.describe())
-    print(financial_df.describe())
+    config_path = 'config.json'
+
+    START_DATE = datetime(2018, 5, 15)  # 2017 2분기 + 4개분기 + 45일
+    END_DATE = datetime.now()
+
+    data_importer = DataImporter(config_path=config_path, start_date=START_DATE, rsi_period=45)
+    financial_df_all, date_stock_dict = data_importer.get_all_financial_data(START_DATE, END_DATE)
+    price_df_all = data_importer.get_price_data([code + ".KS" for code in financial_df_all['Code']])
 ##
 
