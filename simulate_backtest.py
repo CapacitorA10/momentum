@@ -42,12 +42,12 @@ def calculate_period_returns(price_df, tickers, weights, start_date, end_date):
 config_path = 'config.json'
 
 START_DATE = datetime(2018, 5, 15) # 2017 2분기 + 4개분기 + 45일
-END_DATE = datetime(2024, 12, 30)
+END_DATE = datetime.now()
 
-data_importer = DataImporter(config_path=config_path, start_date=START_DATE, rsi_period=14)
+data_importer = DataImporter(config_path=config_path, start_date=START_DATE, rsi_period=45)
 factor_calc = FactorCalculator()
 
-financial_df_all = data_importer.get_all_financial_data()
+financial_df_all, date_stock_dict = data_importer.get_all_financial_data(START_DATE, END_DATE)
 price_df_all = data_importer.get_price_data([code + ".KS" for code in financial_df_all['Code']])
 
 ## 백테스팅 진행
@@ -62,9 +62,26 @@ current_date = START_DATE
 while current_date <= END_DATE:
     print(f"Processing on {current_date.strftime('%Y-%m-%d')}")
 
-    # 1. 재무데이터 및 주가 데이터 수집
-    financial_df = financial_df_all.copy()
-    price_df = price_df_all.copy()
+    # 1. 날짜에 맞는 재무데이터 및 주가 데이터 수집
+    current_date_yyyymmdd = current_date.strftime('%Y%m%d')
+    if current_date_yyyymmdd in date_stock_dict:
+        stock_codes = date_stock_dict[current_date_yyyymmdd]
+        financial_df = financial_df_all[financial_df_all['Code'].isin(stock_codes)].copy()
+
+        valid_cols = []
+        for col in price_df_all.columns:
+            if isinstance(col, str):
+                ticker = col.replace(".KS", "")
+                if ticker in stock_codes:
+                    valid_cols.append(col)
+        price_df = price_df_all[valid_cols].copy()
+
+    else:
+        print(f"{current_date_yyyymmdd} has no stock data")
+        print(date_stock_dict.keys())
+        break
+    #financial_df = financial_df_all.copy()
+    #price_df = price_df_all.copy()
 
     # 2. current_date 에 맞게 데이터 필터링
     target_quarters = get_quarterly_dates(current_date)
