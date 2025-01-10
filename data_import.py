@@ -291,6 +291,6 @@ if __name__ == "__main__":
 
     data_importer = DataImporter(config_path=config_path, start_date=START_DATE, rsi_period=45)
     financial_df_all, date_stock_dict = data_importer.get_all_financial_data(START_DATE, END_DATE)
-    price_df_all = data_importer.get_price_data([code + ".KS" for code in financial_df_all['Code']])
+    price_df_all = data_importer.get_price_data([code + ".KQ" for code in financial_df_all['Code']])
 ##
 

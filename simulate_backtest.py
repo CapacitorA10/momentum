@@ -71,7 +71,7 @@ while current_date <= END_DATE:
         valid_cols = []
         for col in price_df_all.columns:
             if isinstance(col, str):
-                ticker = col.replace(".KS", "")
+                ticker = col.replace(".KQ", "")
                 if ticker in stock_codes:
                     valid_cols.append(col)
         price_df = price_df_all[valid_cols].copy()
