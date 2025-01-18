@@ -9,6 +9,7 @@ import time
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from pykrx import stock
+from PublicDataReader import Ecos
 
 class DataImporter:
     def __init__(self, config_path='config.json', start_date=datetime(2018, 5, 15), rsi_period=30):
@@ -20,6 +21,8 @@ class DataImporter:
         self.kis_appsecret = self.config['KIS_API']['appsecret']
         self.cano = self.config['KIS_API']['CANO']
         self.acnt_prdt_cd = self.config['KIS_API']['ACNT_PRDT_CD']
+
+        self.ecos_apikey = self.config['ECOS_API']['apikey']
 
         self.rsi_period = rsi_period
         self.start_date = start_date
@@ -282,6 +285,23 @@ class DataImporter:
         data['Cumulative Return'] = (1 + data['Adj Close'].pct_change().fillna(0)).cumprod()
         return data[['Cumulative Return', 'Adj Close']]
 
+    def get_korea_3m_tbill_rate(self, date):
+        """
+        한국은행 API 활용
+        """
+        #date를 YYYYQ1, YYYYQ2, YYYYQ3, YYYYQ4로 변환
+        year = date.year
+        quarter = (date.month - 1) // 3 + 1
+        quarter_str = f"{year}Q{quarter}"
+
+        api = Ecos(self.ecos_apikey)
+        df = api.get_statistic_search(통계표코드='721Y001',
+                                      주기='Q',
+                                      검색시작일자=quarter_str,
+                                      검색종료일자=quarter_str,
+                                      통계항목코드1 = '2010000')
+        tbill_rate = float(df['값'].iloc[0])
+        return tbill_rate
 
 if __name__ == "__main__":
     config_path = 'config.json'
