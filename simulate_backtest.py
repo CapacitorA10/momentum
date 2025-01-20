@@ -101,32 +101,56 @@ while current_date <= END_DATE:
     selected_tickers = [code for code in selected_stocks['Code']]
     returns_df.columns = returns_df.columns.str.replace(".KS", "", regex=False)
     returns_selected = returns_df[selected_tickers].dropna()
-    opt_result, sharpe_ratio = optimize_portfolio(selected_stocks, returns_selected, risk_free_rate=0.001)
 
-    # 5. 포트폴리오 비중에 따른 수익 계산
-    weights = opt_result['Weight'].values
-    weights_df = pd.DataFrame({
-        'Date': [current_date] * len(selected_tickers),
-        'Code': selected_tickers,
-        'Weight': weights
-    })
-    portfolio_weights_history = pd.concat([portfolio_weights_history, weights_df], ignore_index=True)
+    tbill_rate = data_importer.get_korea_3m_tbill_rate(current_date) / 100
+    opt_result, sharpe_ratio = optimize_portfolio(selected_stocks, returns_selected, risk_free_rate=tbill_rate)
+    # 최적화 결과가 없을 경우, tbill_rate로 투자
+    if opt_result['Weight'].isnull().all():
+        print(f"No optimal portfolio found for {current_date}")
+        weights = [0] * len(selected_tickers) # 포트폴리오 주식투자비중 0으로 설정
+        period_return = tbill_rate # 수익률은 무위험수익률로 설정
+        weights_df = pd.DataFrame({
+            'Date': [current_date],
+            'Code': ['T-Bill'],
+            'Weight': [1.0]
+        })
 
-    # 기간 수익률 계산
-    rebalancing_end_date = current_date + relativedelta(months=3)
-    rebalancing_end_date = min(rebalancing_end_date, END_DATE)  # 종료일을 초과하지 않도록
-    daily_returns, period_return = calculate_period_returns(price_df, selected_tickers, weights, current_date,
+    else:
+        weights = opt_result['Weight'].values
+
+        # 5. 포트폴리오 비중에 따른 수익 계산
+        weights_df = pd.DataFrame({
+            'Date': [current_date] * len(selected_tickers),
+            'Code': selected_tickers,
+            'Weight': weights
+        })
+        portfolio_weights_history = pd.concat([portfolio_weights_history, weights_df], ignore_index=True)
+
+        # 기간 수익률 계산
+        rebalancing_end_date = current_date + relativedelta(months=3)
+        rebalancing_end_date = min(rebalancing_end_date, END_DATE)  # 종료일을 초과하지 않도록
+        daily_returns, period_return = calculate_period_returns(price_df, selected_tickers, weights, current_date,
                                                             rebalancing_end_date)
 
     # 6. 포트폴리오 잔고 업데이트
-    current_money_before = current_money
-    current_money *= (1 + period_return)
-    money_history.append(current_money)
-    date_history.append(current_date)
+    if opt_result['Weight'].isnull().all():
+        current_money_before = current_money
+        current_money *= (1 + period_return)
+        money_history.append(current_money)
+        date_history.append(current_date)
 
-    daily_asset_values = current_money_before * daily_returns
-    daily_asset_values = daily_asset_values.to_frame(name="PortfolioValue")
-    daily_value_history = pd.concat([daily_value_history, daily_asset_values])
+        daily_asset_values = current_money_before * (1 + period_return)
+        daily_asset_values = pd.DataFrame({'PortfolioValue': [daily_asset_values]}, index=[current_date])
+        daily_value_history = pd.concat([daily_value_history, daily_asset_values])
+    else:
+        current_money_before = current_money
+        current_money *= (1 + period_return)
+        money_history.append(current_money)
+        date_history.append(current_date)
+
+        daily_asset_values = current_money_before * daily_returns
+        daily_asset_values = daily_asset_values.to_frame(name="PortfolioValue")
+        daily_value_history = pd.concat([daily_value_history, daily_asset_values])
 
     # 다음 분기로 이동
     current_date += relativedelta(months=3)
@@ -234,4 +258,3 @@ print(f" - CAGR (연평균 성장률): {bm_cagr:.2f}%")
 print(f" - MDD (최대 손실률): {bm_mdd:.2f}%")
 print(f" - Sharpe Ratio: {bm_sharpe_ratio:.2f}")
 ##
-

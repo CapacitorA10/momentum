@@ -295,11 +295,11 @@ class DataImporter:
         quarter_str = f"{year}Q{quarter}"
 
         api = Ecos(self.ecos_apikey)
-        df = api.get_statistic_search(통계표코드='721Y001',
+        df = api.get_statistic_search(통계표코드='722Y001',
                                       주기='Q',
                                       검색시작일자=quarter_str,
                                       검색종료일자=quarter_str,
-                                      통계항목코드1 = '2010000')
+                                      통계항목코드1 = '0101000')
         tbill_rate = float(df['값'].iloc[0])
         return tbill_rate
 
