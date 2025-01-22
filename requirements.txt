@@ -10,3 +10,4 @@ ecos
 scs
 pykrx
 PublicDataReader
+seaborn
