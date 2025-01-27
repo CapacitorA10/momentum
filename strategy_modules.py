@@ -5,6 +5,13 @@ import numpy as np
 import cvxpy as cp
 
 def calculate_2years_return(price_df, start_date, end_date):
+    # 인덱스가 datetime 형식인지 확인
+    if not isinstance(price_df.index, pd.DatetimeIndex):
+        # index가 datetime이 아닌 경우, 'Date' 컬럼을 index로 설정
+        price_df = price_df.set_index('Date')
+        # datetime 형식으로 변환
+        price_df.index = pd.to_datetime(price_df.index)
+
     returns_df = price_df.pct_change()
     # 월간 수익률로 보정
     returns_df = (1 + returns_df).resample('ME').prod() - 1
