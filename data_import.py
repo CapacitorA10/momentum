@@ -23,6 +23,8 @@ class DataImporter:
         self.acnt_prdt_cd = self.config['KIS_API']['ACNT_PRDT_CD']
 
         self.ecos_apikey = self.config['ECOS_API']['apikey']
+        # tbill csv 파일 경로
+        self.tbill_csv_path = "korea_3m_tbill_rate.csv"
 
         self.rsi_period = rsi_period
         self.start_date = start_date
@@ -287,21 +289,53 @@ class DataImporter:
 
     def get_korea_3m_tbill_rate(self, date):
         """
-        한국은행 API 활용
+        한국은행 API 활용, 연도+분기별 3개월물 국고채 금리를 CSV에 캐싱하는 방식으로 조회
         """
-        #date를 YYYYQ1, YYYYQ2, YYYYQ3, YYYYQ4로 변환
+        # (1) date → 'YYYYQX' 형태 분기 문자열
         year = date.year
         quarter = (date.month - 1) // 3 + 1
         quarter_str = f"{year}Q{quarter}"
 
+        # (2) CSV 파일에서 먼저 검색
+        if os.path.exists(self.tbill_csv_path):
+            rate_df = pd.read_csv(self.tbill_csv_path)
+        else:
+            # 아직 파일이 없으면 빈 DataFrame 생성
+            rate_df = pd.DataFrame(columns=["Quarter", "Rate"])
+
+        # (3) CSV 안에 quarter_str이 있는지 확인
+        existing_row = rate_df.loc[rate_df["Quarter"] == quarter_str]
+        if not existing_row.empty:
+            # 이미 해당 분기의 금리가 있으면 바로 반환
+            tbill_rate = float(existing_row["Rate"].iloc[0])
+            return tbill_rate
+
+        # (4) CSV에 없는 분기는 Open API 호출 → 값 가져오기 → CSV에 추가
         api = Ecos(self.ecos_apikey)
-        df = api.get_statistic_search(통계표코드='722Y001',
-                                      주기='Q',
-                                      검색시작일자=quarter_str,
-                                      검색종료일자=quarter_str,
-                                      통계항목코드1 = '0101000')
-        tbill_rate = float(df['값'].iloc[0])
-        return tbill_rate
+        df = api.get_statistic_search(
+            통계표코드='722Y001',
+            주기='Q',
+            검색시작일자=quarter_str,
+            검색종료일자=quarter_str,
+            통계항목코드1='0101000'
+        )
+        time.sleep(0.6)  # API 호출 제한을 위한 대기 시간
+
+        # 응답 결과가 비어있거나, df['값'] 컬럼이 없는 경우 대비
+        if df is None or df.empty or '값' not in df.columns:
+            # 원하는 예외 처리 로직(로깅 혹은 에러 발생)
+            # 예: raise ValueError(f"{quarter_str} 국고채 금리를 가져오지 못했습니다.")
+            print(f"{quarter_str} 국고채 금리를 가져오지 못했습니다. API 혹은 응답 형식 점검 필요.")
+            return None
+
+        new_rate = float(df['값'].iloc[0])
+        # 새 행을 DataFrame으로 만들고 기존 rate_df와 concat
+        new_row = pd.DataFrame([{"Quarter": quarter_str, "Rate": new_rate}])
+        rate_df = pd.concat([rate_df, new_row], ignore_index=True)
+        # CSV에 저장 (덮어쓰기)
+        rate_df.to_csv(self.tbill_csv_path, index=False)
+
+        return new_rate
 
 if __name__ == "__main__":
     config_path = 'config.json'

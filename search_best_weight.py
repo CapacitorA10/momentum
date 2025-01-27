@@ -16,6 +16,8 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
+import os
+import json
 
 # 기존 strategy_modules.py 내부의 함수/클래스 임포트
 from strategy_modules import (
@@ -26,6 +28,12 @@ from strategy_modules import (
 
 # 기존 data_import.py 내부의 DataImporter 임포트
 from data_import import DataImporter
+
+#FutureWarning 제거
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
+#UserWarning 제거
+warnings.simplefilter(action='ignore', category=UserWarning)
 
 #########################################
 # 1) 팩터 가중치를 적용한 rank_stocks 함수
@@ -96,6 +104,124 @@ def rank_stocks_with_weights(factor_df, factor_weights):
 #########################################
 # 2) 여러 가중치 조합을 탐색(그리드 서치)하는 함수
 #########################################
+def run_single_combination(combo_args):
+    """
+    combo_args: (factor_weights_dict, 기타 필요한 인자들...) 튜플 또는 dict
+
+    이 함수가 실제로 해당 팩터 가중치 조합으로 백테스트를 수행한 뒤,
+    결과(CAGR, FinalValue 등)를 리턴한다고 가정
+    """
+    (factor_weights, financial_df_all, date_stock_dict, price_df_all,
+     data_importer, factor_calc, top_n) = combo_args
+
+    # ========== 실제 백테스트 로직 시작 (기존 search_best_factor_weights의 루프 부분) ==========
+
+    # 매 백테스트 마다 초기화
+    START_DATE = data_importer.start_date
+    END_DATE = data_importer.end_date
+    initial_money = 10_000_000
+    current_money = initial_money
+    current_date = START_DATE
+
+    while current_date <= END_DATE:
+        current_date_yyyymmdd = current_date.strftime('%Y%m%d')
+
+        # 해당 날짜의 종목 필터링
+        if current_date_yyyymmdd not in date_stock_dict:
+            break
+        stock_codes = date_stock_dict[current_date_yyyymmdd]
+        financial_df = financial_df_all[financial_df_all['Code'].isin(stock_codes)].copy()
+        valid_cols = []
+        for col in price_df_all.columns:
+            ticker = col.replace(".KS", "")
+            if ticker in stock_codes:
+                valid_cols.append(col)
+        price_df = price_df_all[valid_cols].copy()
+
+        # 2년간 수익률 계산
+        from simulate_backtest import get_quarterly_dates, calculate_period_returns
+        from strategy_modules import calculate_2years_return, optimize_portfolio
+
+        target_quarters = get_quarterly_dates(current_date)
+        financial_df = financial_df[financial_df['YearMonth'].isin(target_quarters)]
+        returns_df = calculate_2years_return(
+            price_df,
+            start_date=current_date - timedelta(days=365 * 2),
+            end_date=current_date
+        )
+
+        # 팩터 계산
+        factor_df = factor_calc.calculate_factors(financial_df, price_df)
+        common_tickers = set(factor_df['Code']).intersection(
+            set(returns_df.columns.str.replace(".KS", ""))
+        )
+        factor_df = factor_df[factor_df['Code'].isin(common_tickers)].dropna()
+        returns_df.columns = returns_df.columns.str.replace(".KS", "")
+        returns_df = returns_df[list(common_tickers)]
+
+        # (c) rank_stocks_with_weights 사용 → 상위 N 종목
+        ranked_df = rank_stocks_with_weights(factor_df, factor_weights)
+        selected_stocks = ranked_df.head(top_n)
+        selected_tickers = selected_stocks['Code'].tolist()
+
+        # 최적화(포트폴리오 구성)
+        returns_selected = returns_df[selected_tickers].dropna(axis=0, how='any')
+        tbill_rate = data_importer.get_korea_3m_tbill_rate(current_date) / 100
+        ### debug
+        # print(f"financial_df_all: {financial_df_all}")
+        # print(f"price_df_all: {price_df_all}")
+        # print(f"financial_df: {financial_df}")
+        # print(f"price_df: {price_df}")
+        # print(f"factor_df: {factor_df}")
+        # print(f"factor weights: {factor_weights}")
+        # print(f"ranked_df: {ranked_df}")
+        # print(f"Selected tickers: {selected_tickers}")
+        # print(f"Selected stocks: {selected_stocks}")
+        # print(f"Returns df: {returns_df}")
+        # print(f"Returns selected: {returns_selected}")
+        # print(f"Risk-free rate: {tbill_rate}")
+        # print("\n=============\n")
+        ###
+        opt_result, _ = optimize_portfolio(selected_stocks, returns_selected, risk_free_rate=tbill_rate)
+
+        # 수익률 계산
+        if opt_result['Weight'].isnull().all():
+            # 최적화 해가 없으면 무위험수익률만 적용
+            period_return = tbill_rate
+        else:
+            rebalancing_end_date = current_date + relativedelta(months=3)
+            rebalancing_end_date = min(rebalancing_end_date, END_DATE)
+            _, period_return = calculate_period_returns(
+                price_df,
+                selected_tickers,
+                opt_result['Weight'].values,
+                current_date,
+                rebalancing_end_date
+            )
+
+        # 자산 업데이트
+        current_money *= (1 + period_return)
+
+        # 다음 분기로 이동
+        current_date += relativedelta(months=3)
+
+    # 백테스트 결과
+    final_money = current_money
+    total_years = (END_DATE - START_DATE).days / 365.25
+    if total_years <= 0:
+        cagr = 0
+    else:
+        cagr = ((final_money / initial_money) ** (1 / total_years) - 1) * 100
+
+    # 리턴할 딕셔너리
+    return {
+        'RevenueGrowth_w': factor_weights['RevenueGrowth'],
+        'OpIncomeGrowth_w': factor_weights['OpIncomeGrowth'],
+        'ROE_w': factor_weights['ROE'],
+        'RSI_w': factor_weights['RSI'],
+        'CAGR': cagr,
+        'FinalValue': final_money
+    }
 def search_best_factor_weights(financial_df_all,
                                date_stock_dict,
                                price_df_all,
@@ -103,25 +229,9 @@ def search_best_factor_weights(financial_df_all,
                                factor_calc,
                                weight_candidates=None,
                                top_n=10):
-    """
-    financial_df_all: 모든 종목/분기의 재무데이터(이미 수집 완료)
-    date_stock_dict: 날짜별(yyyymmdd) 종목 리스트
-    price_df_all: yfinance에서 받아온 주가 전체 DataFrame
-    data_importer: DataImporter 객체 (무위험이자율 등 가져오기 위함)
-    factor_calc: FactorCalculator 객체
-    weight_candidates: dict 형태의 후보군. 예) {
-        'RevenueGrowth': [0.5, 1.0, 1.5],
-        'OpIncomeGrowth': [0.5, 1.0, 1.5],
-        'ROE': [1.0, 2.0],
-        'RSI': [0.5, 1.0]
-    }
-    top_n: rank_stocks_with_weights 결과에서 상위 몇 종목 투자할지
+    from itertools import product
+    import multiprocessing  # 여기 추가
 
-    return:
-        best_weights (dict) - 가장 성과 좋은 팩터 가중치
-        best_performance (float) - 그때의 성과 (CAGR 등)
-        all_results_df (DataFrame) - 각 가중치 조합별 성과 기록
-    """
     if weight_candidates is None:
         weight_candidates = {
             'RevenueGrowth': [0.5, 1.0, 1.5],
@@ -130,128 +240,36 @@ def search_best_factor_weights(financial_df_all,
             'RSI': [0.5, 1.0]
         }
 
-    # (a) 모든 조합 만들기 (Nested loop)
-    from itertools import product
-
     factor_keys = list(weight_candidates.keys())
     list_of_lists = [weight_candidates[k] for k in factor_keys]
     combination_list = list(product(*list_of_lists))
 
-    # 결과 저장용
-    results = []
-
-    # (b) 단순 백테스트 파라미터 설정
-    START_DATE = data_importer.start_date
-    END_DATE = data_importer.end_date
-    initial_money = 10_000_000
-
-    # 너무 많은 조합을 테스트하는 경우 시간이 오래 걸리므로 유의
+    # (1) 풀에서 돌릴 준비: 각 조합에 필요한 인자 패키징
+    task_args_list = []
     for combo in combination_list:
         factor_weights = dict(zip(factor_keys, combo))
-        print(f"\n[Backtest] 시도 가중치 조합: {factor_weights}")
+        # run_single_combination에 들어가는 인자들
+        args = (
+            factor_weights,
+            financial_df_all,
+            date_stock_dict,
+            price_df_all,
+            data_importer,
+            factor_calc,
+            top_n
+        )
+        task_args_list.append(args)
 
-        # 매 백테스트 마다 초기화
-        current_money = initial_money
-        current_date = START_DATE
+    # (2) multiprocessing Pool 사용
+    cpu_count = max(multiprocessing.cpu_count()-1, 1)  # 또는 원하는 만큼
+    with multiprocessing.Pool(processes=cpu_count) as pool:
+        results = pool.map(run_single_combination, task_args_list)
+    # 이때 results에는 각 조합별로 return된 dict가 순서대로 들어감
 
-        while current_date <= END_DATE:
-            current_date_yyyymmdd = current_date.strftime('%Y%m%d')
-
-            # 해당 분기의 종목 리스트
-            if current_date_yyyymmdd in date_stock_dict:
-                stock_codes = date_stock_dict[current_date_yyyymmdd]
-                # 재무데이터 필터
-                financial_df = financial_df_all[financial_df_all['Code'].isin(stock_codes)].copy()
-                # 가격데이터 필터
-                valid_cols = []
-                for col in price_df_all.columns:
-                    ticker = col.replace(".KS", "")
-                    if ticker in stock_codes:
-                        valid_cols.append(col)
-                price_df = price_df_all[valid_cols].copy()
-            else:
-                # 이 날짜에 해당 종목 리스트가 없으면 break (백테스트 종료)
-                break
-
-            # 최근 4개 분기에 해당하는 YearMonth만 필터
-            # 아래는 기존 get_quarterly_dates 함수를 그대로 사용:
-            from simulate_backtest import get_quarterly_dates
-            target_quarters = get_quarterly_dates(current_date)
-            financial_df = financial_df[financial_df['YearMonth'].isin(target_quarters)]
-
-            # 2년간 수익률 계산
-            returns_df = calculate_2years_return(
-                price_df,
-                start_date=current_date - timedelta(days=365 * 2),
-                end_date=current_date
-            )
-
-            # 팩터계산
-            factor_df = factor_calc.calculate_factors(financial_df, price_df)
-            common_tickers = set(factor_df['Code']).intersection(set(returns_df.columns.str.replace(".KS", "")))
-            common_tickers = list(common_tickers)
-            factor_df = factor_df[factor_df['Code'].isin(common_tickers)].dropna()
-            returns_df.columns = returns_df.columns.str.replace(".KS", "")
-            returns_df = returns_df[common_tickers]
-
-            # (c) rank_stocks_with_weights 사용 → 상위 N 종목 선택
-            ranked_df = rank_stocks_with_weights(factor_df, factor_weights)
-            selected_stocks = ranked_df.head(top_n)
-            selected_tickers = [code for code in selected_stocks['Code']]
-
-            # 최적화(포트폴리오 구성)
-            returns_selected = returns_df[selected_tickers].dropna(axis=0, how='any')
-            tbill_rate = data_importer.get_korea_3m_tbill_rate(current_date) / 100
-            opt_result, _ = optimize_portfolio(
-                selected_stocks,
-                returns_selected,
-                risk_free_rate=tbill_rate
-            )
-
-            if opt_result['Weight'].isnull().all():
-                # 최적화 해가 없으면 무위험수익률만 적용
-                period_return = tbill_rate
-            else:
-                # 기간 수익률 계산
-                from simulate_backtest import calculate_period_returns
-                rebalancing_end_date = current_date + relativedelta(months=3)
-                rebalancing_end_date = min(rebalancing_end_date, END_DATE)
-
-                _, period_return = calculate_period_returns(
-                    price_df,
-                    selected_tickers,
-                    opt_result['Weight'].values,
-                    current_date,
-                    rebalancing_end_date
-                )
-
-            # 자산 업데이트
-            current_money = current_money * (1 + period_return)
-
-            # 다음 분기로 이동
-            current_date += relativedelta(months=3)
-
-        # 백테스트가 끝난 시점의 final_money
-        final_money = current_money
-        total_years = (END_DATE - START_DATE).days / 365.25
-        if total_years <= 0:
-            cagr = 0
-        else:
-            cagr = ((final_money / initial_money) ** (1 / total_years) - 1) * 100
-
-        # 결과 저장
-        results.append({
-            'RevenueGrowth_w': factor_weights['RevenueGrowth'],
-            'OpIncomeGrowth_w': factor_weights['OpIncomeGrowth'],
-            'ROE_w': factor_weights['ROE'],
-            'RSI_w': factor_weights['RSI'],
-            'CAGR': cagr,
-            'FinalValue': final_money
-        })
-
-    # (d) 모든 조합 결과 정리
+    # (3) 결과를 DataFrame으로 정리
     all_results_df = pd.DataFrame(results)
-    # CAGR가 가장 높은 조합 찾기
+
+    # (4) 최고 CAGR 찾기
     best_row = all_results_df.loc[all_results_df['CAGR'].idxmax()]
     best_weights = {
         'RevenueGrowth': best_row['RevenueGrowth_w'],
@@ -302,10 +320,27 @@ if __name__ == "__main__":
     START_DATE = datetime(2018, 5, 15)
     END_DATE = datetime.now()
 
-    # 1) 데이터 로드
+    # 1) 데이터 로드, 저장되어 있다면 로드해서 불러오기, 저장되어 있지 않다면 다시 수집 후 저장
     data_importer = DataImporter(config_path=config_path, start_date=START_DATE, rsi_period=45)
-    financial_df_all, date_stock_dict = data_importer.get_all_financial_data(START_DATE, END_DATE)
-    price_df_all = data_importer.get_price_data([code + ".KS" for code in financial_df_all['Code']])
+    financial_df_path = 'financial_df_all.csv'
+    price_df_path = 'price_df_all.csv'
+    date_stock_dict_path = 'date_stock_dict.json'
+
+    if os.path.exists(financial_df_path) and os.path.exists(price_df_path) and os.path.exists(date_stock_dict_path):
+        financial_df_all = pd.read_csv(financial_df_path, dtype={'Code': str, 'YearMonth': str})
+        price_df_all = pd.read_csv(price_df_path, parse_dates=['Date'])
+        price_df_all.set_index('Date', inplace=True)
+        with open(date_stock_dict_path, 'r') as f:
+            date_stock_dict = json.load(f)
+        print("데이터 로드 완료")
+    else:
+        financial_df_all, date_stock_dict = data_importer.get_all_financial_data(START_DATE, END_DATE)
+        price_df_all = data_importer.get_price_data([code + ".KS" for code in financial_df_all['Code']])
+
+        financial_df_all.to_csv(financial_df_path, index=True)
+        json.dump(date_stock_dict, open(date_stock_dict_path, 'w'))
+        price_df_all.to_csv(price_df_path, index=True)
+        print("데이터 수집 및 저장 완료")
 
     factor_calc = FactorCalculator()
 
@@ -348,13 +383,13 @@ if __name__ == "__main__":
         )
         plot_heatmap_for_two_factors(
             filtered_df,
-            factor_x='RevenueGrowth',
+            factor_x='RevenueGrowth_w',
             factor_y='ROE_w',
             value_col='CAGR'
         )
         plot_heatmap_for_two_factors(
             filtered_df,
-            factor_x='RevenueGrowth',
+            factor_x='RevenueGrowth_w',
             factor_y='RSI_w',
             value_col='CAGR'
         )
