@@ -346,10 +346,10 @@ if __name__ == "__main__":
 
     # 2) 여러 가중치 후보 설정
     weight_candidates = {
-        'RevenueGrowth': [0.5, 1.0, 1.5],
-        'OpIncomeGrowth': [0.5, 1.0, 1.5],
-        'ROE': [0.5, 1.0],
-        'RSI': [0.5, 1.0]
+        'RevenueGrowth': list(np.arange(0.3, 2.2, 0.2)),
+        'OpIncomeGrowth': list(np.arange(0.3, 2.2, 0.2)),
+        'ROE': list(np.arange(0.3, 2.2, 0.2)),
+        'RSI': list(np.arange(0.3, 2.2, 0.2))
     }
 
     # 3) 탐색
