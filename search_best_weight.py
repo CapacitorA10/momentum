@@ -187,7 +187,7 @@ def run_single_combination(combo_args):
         # 수익률 계산
         if opt_result['Weight'].isnull().all():
             # 최적화 해가 없으면 무위험수익률만 적용
-            period_return = tbill_rate
+            period_return = 1 + (data_importer.get_korea_3m_tbill_rate(current_date) / 100)
         else:
             rebalancing_end_date = current_date + relativedelta(months=3)
             rebalancing_end_date = min(rebalancing_end_date, END_DATE)
@@ -199,8 +199,11 @@ def run_single_combination(combo_args):
                 rebalancing_end_date
             )
 
-        # 자산 업데이트
-        current_money *= (1 + period_return)
+        # 자산 업데이트 (수정된 부분)
+        current_money *= period_return
+
+        # 디버깅 출력 (옵션)
+        print(f"Date: {current_date}, Period Return: {period_return}, Current Money: {current_money}")
 
         # 다음 분기로 이동
         current_date += relativedelta(months=3)
