@@ -363,9 +363,7 @@ if __name__ == "__main__":
     #    나머지 ROE, RSI는 한 가지 값만 필터하거나 평균
     #    (4차원 전부를 한 장의 Heatmap으로 표현은 불가하므로 예시)
     #    - 아래는 ROE=1.0, RSI=1.0인 경우만 필터하여 Heatmap
-    filtered_df = all_results_df[
-        (all_results_df['ROE_w'] == 1.0) & (all_results_df['RSI_w'] == 1.0)
-    ]
+    filtered_df = all_results_df
     if not filtered_df.empty:
         plot_heatmap_for_two_factors(
             filtered_df,
