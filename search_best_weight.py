@@ -338,10 +338,10 @@ if __name__ == "__main__":
 
     # 2) 여러 가중치 후보 설정
     weight_candidates = {
-        'RevenueGrowth': list(np.arange(0.3, 2.2, 0.2)),
-        'OpIncomeGrowth': list(np.arange(0.3, 2.2, 0.2)),
-        'ROE': [1],
-        'RSI': [1]
+        'RevenueGrowth': [1],
+        'OpIncomeGrowth': [1],
+        'ROE': list(np.arange(0.3, 2.2, 0.2)),
+        'RSI': list(np.arange(0.3, 2.2, 0.2))
     }
 
     # 3) 탐색
@@ -367,8 +367,8 @@ if __name__ == "__main__":
     if not filtered_df.empty:
         plot_heatmap_for_two_factors(
             filtered_df,
-            factor_x='RevenueGrowth_w',
-            factor_y='OpIncomeGrowth_w',
+            factor_x='ROE_w',
+            factor_y='RSI_w',
             value_col='CAGR'
         )
     else:
