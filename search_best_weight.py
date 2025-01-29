@@ -338,10 +338,10 @@ if __name__ == "__main__":
 
     # 2) 여러 가중치 후보 설정
     weight_candidates = {
-        'RevenueGrowth': [1],
-        'OpIncomeGrowth': [1],
-        'ROE': list(np.arange(0.3, 2.2, 0.2)),
-        'RSI': list(np.arange(0.3, 2.2, 0.2))
+        'RevenueGrowth': list(np.arange(0.5, 2.1, 0.5)),
+        'OpIncomeGrowth': list(np.arange(0.5, 2.1, 0.5)),
+        'ROE': list(np.arange(0.5, 2.1, 0.5)),
+        'RSI': list(np.arange(0.5, 2.1, 0.5)),
     }
 
     # 3) 탐색
@@ -369,6 +369,36 @@ if __name__ == "__main__":
             filtered_df,
             factor_x='ROE_w',
             factor_y='RSI_w',
+            value_col='CAGR'
+        )
+        plot_heatmap_for_two_factors(
+            filtered_df,
+            factor_x='RevenueGrowth_w',
+            factor_y='OpIncomeGrowth_w',
+            value_col='CAGR'
+        )
+        plot_heatmap_for_two_factors(
+            filtered_df,
+            factor_x='ROE_w',
+            factor_y='OpIncomeGrowth_w',
+            value_col='CAGR'
+        )
+        plot_heatmap_for_two_factors(
+            filtered_df,
+            factor_x='ROE_w',
+            factor_y='RevenueGrowth_w',
+            value_col='CAGR'
+        )
+        plot_heatmap_for_two_factors(
+            filtered_df,
+            factor_x='RSI_w',
+            factor_y='OpIncomeGrowth_w',
+            value_col='CAGR'
+        )
+        plot_heatmap_for_two_factors(
+            filtered_df,
+            factor_x='RSI_w',
+            factor_y='RevenueGrowth_w',
             value_col='CAGR'
         )
     else:
