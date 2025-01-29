@@ -187,7 +187,7 @@ def run_single_combination(combo_args):
         # 수익률 계산
         if opt_result['Weight'].isnull().all():
             # 최적화 해가 없으면 무위험수익률만 적용
-            period_return = 1 + (data_importer.get_korea_3m_tbill_rate(current_date) / 100)
+            period_return = (data_importer.get_korea_3m_tbill_rate(current_date) / 100)
         else:
             rebalancing_end_date = current_date + relativedelta(months=3)
             rebalancing_end_date = min(rebalancing_end_date, END_DATE)
