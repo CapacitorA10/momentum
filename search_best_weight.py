@@ -232,14 +232,6 @@ def search_best_factor_weights(financial_df_all,
     from itertools import product
     import multiprocessing  # 여기 추가
 
-    if weight_candidates is None:
-        weight_candidates = {
-            'RevenueGrowth': [0.5, 1.0, 1.5],
-            'OpIncomeGrowth': [0.5, 1.0, 1.5],
-            'ROE': [0.5, 1.0],
-            'RSI': [0.5, 1.0]
-        }
-
     factor_keys = list(weight_candidates.keys())
     list_of_lists = [weight_candidates[k] for k in factor_keys]
     combination_list = list(product(*list_of_lists))
@@ -348,8 +340,8 @@ if __name__ == "__main__":
     weight_candidates = {
         'RevenueGrowth': list(np.arange(0.3, 2.2, 0.2)),
         'OpIncomeGrowth': list(np.arange(0.3, 2.2, 0.2)),
-        'ROE': list(np.arange(0.3, 2.2, 0.2)),
-        'RSI': list(np.arange(0.3, 2.2, 0.2))
+        'ROE': [1],
+        'RSI': [1]
     }
 
     # 3) 탐색
@@ -379,36 +371,6 @@ if __name__ == "__main__":
             filtered_df,
             factor_x='RevenueGrowth_w',
             factor_y='OpIncomeGrowth_w',
-            value_col='CAGR'
-        )
-        plot_heatmap_for_two_factors(
-            filtered_df,
-            factor_x='RevenueGrowth_w',
-            factor_y='ROE_w',
-            value_col='CAGR'
-        )
-        plot_heatmap_for_two_factors(
-            filtered_df,
-            factor_x='RevenueGrowth_w',
-            factor_y='RSI_w',
-            value_col='CAGR'
-        )
-        plot_heatmap_for_two_factors(
-            filtered_df,
-            factor_x='OpIncomeGrowth_w',
-            factor_y='ROE_w',
-            value_col='CAGR'
-        )
-        plot_heatmap_for_two_factors(
-            filtered_df,
-            factor_x='OpIncomeGrowth_w',
-            factor_y='RSI_w',
-            value_col='CAGR'
-        )
-        plot_heatmap_for_two_factors(
-            filtered_df,
-            factor_x='ROE_w',
-            factor_y='RSI_w',
             value_col='CAGR'
         )
     else:
