@@ -200,7 +200,7 @@ def run_single_combination(combo_args):
             )
 
         # 자산 업데이트 (수정된 부분)
-        current_money *= period_return
+        current_money *= 1 + period_return
 
         # 디버깅 출력 (옵션)
         print(f"Date: {current_date}, Period Return: {period_return}, Current Money: {current_money}")
