@@ -256,7 +256,7 @@ def search_best_factor_weights(financial_df_all,
         task_args_list.append(args)
 
     # (2) multiprocessing Pool 사용
-    cpu_count = max(multiprocessing.cpu_count()-1, 1)  # 또는 원하는 만큼
+    cpu_count = max(multiprocessing.cpu_count(), 1)  # 또는 원하는 만큼
     with multiprocessing.Pool(processes=cpu_count) as pool:
         results = pool.map(run_single_combination, task_args_list)
     # 이때 results에는 각 조합별로 return된 dict가 순서대로 들어감
