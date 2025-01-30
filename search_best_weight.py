@@ -167,21 +167,6 @@ def run_single_combination(combo_args):
         # 최적화(포트폴리오 구성)
         returns_selected = returns_df[selected_tickers].dropna(axis=0, how='any')
         tbill_rate = data_importer.get_korea_3m_tbill_rate(current_date) / 100
-        ### debug
-        # print(f"financial_df_all: {financial_df_all}")
-        # print(f"price_df_all: {price_df_all}")
-        # print(f"financial_df: {financial_df}")
-        # print(f"price_df: {price_df}")
-        # print(f"factor_df: {factor_df}")
-        # print(f"factor weights: {factor_weights}")
-        # print(f"ranked_df: {ranked_df}")
-        # print(f"Selected tickers: {selected_tickers}")
-        # print(f"Selected stocks: {selected_stocks}")
-        # print(f"Returns df: {returns_df}")
-        # print(f"Returns selected: {returns_selected}")
-        # print(f"Risk-free rate: {tbill_rate}")
-        # print("\n=============\n")
-        ###
         opt_result, _ = optimize_portfolio(selected_stocks, returns_selected, risk_free_rate=tbill_rate)
 
         # 수익률 계산
