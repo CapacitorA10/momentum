@@ -37,224 +37,224 @@ def calculate_period_returns(price_df, tickers, weights, start_date, end_date):
     cumulative_returns = (1 + portfolio_daily_returns).cumprod()
 
     return cumulative_returns, cumulative_returns[-1] - 1 # 누적 수익률, 기간 수익률
+def main():
+    ## 백테스트 초기 셋업
+    config_path = 'config.json'
 
-## 백테스트 초기 셋업
-config_path = 'config.json'
+    START_DATE = datetime(2018, 5, 15) # 2017 2분기 + 4개분기 + 45일
+    END_DATE = datetime.now()
 
-START_DATE = datetime(2018, 5, 15) # 2017 2분기 + 4개분기 + 45일
-END_DATE = datetime.now()
+    data_importer = DataImporter(config_path=config_path, start_date=START_DATE, rsi_period=45)
+    factor_calc = FactorCalculator()
 
-data_importer = DataImporter(config_path=config_path, start_date=START_DATE, rsi_period=45)
-factor_calc = FactorCalculator()
+    financial_df_all, date_stock_dict = data_importer.get_all_financial_data(START_DATE, END_DATE)
+    price_df_all = data_importer.get_price_data([code + ".KS" for code in financial_df_all['Code']])
 
-financial_df_all, date_stock_dict = data_importer.get_all_financial_data(START_DATE, END_DATE)
-price_df_all = data_importer.get_price_data([code + ".KS" for code in financial_df_all['Code']])
+    ## 백테스팅 진행
+    initial_money = 10000000 # 1천만원
+    current_money = initial_money
+    money_history = []
+    daily_value_history = pd.DataFrame()
+    portfolio_weights_history = pd.DataFrame()
+    date_history = []
+    current_date = START_DATE
 
-## 백테스팅 진행
-initial_money = 10000000 # 1천만원
-current_money = initial_money
-money_history = []
-daily_value_history = pd.DataFrame()
-portfolio_weights_history = pd.DataFrame()
-date_history = []
-current_date = START_DATE
+    while current_date <= END_DATE:
+        print(f"Processing on {current_date.strftime('%Y-%m-%d')}")
 
-while current_date <= END_DATE:
-    print(f"Processing on {current_date.strftime('%Y-%m-%d')}")
+        # 1. 날짜에 맞는 재무데이터 및 주가 데이터 수집
+        current_date_yyyymmdd = current_date.strftime('%Y%m%d')
+        if current_date_yyyymmdd in date_stock_dict:
+            stock_codes = date_stock_dict[current_date_yyyymmdd]
+            financial_df = financial_df_all[financial_df_all['Code'].isin(stock_codes)].copy()
 
-    # 1. 날짜에 맞는 재무데이터 및 주가 데이터 수집
-    current_date_yyyymmdd = current_date.strftime('%Y%m%d')
-    if current_date_yyyymmdd in date_stock_dict:
-        stock_codes = date_stock_dict[current_date_yyyymmdd]
-        financial_df = financial_df_all[financial_df_all['Code'].isin(stock_codes)].copy()
+            valid_cols = []
+            for col in price_df_all.columns:
+                if isinstance(col, str):
+                    ticker = col.replace(".KS", "")
+                    if ticker in stock_codes:
+                        valid_cols.append(col)
+            price_df = price_df_all[valid_cols].copy()
 
-        valid_cols = []
-        for col in price_df_all.columns:
-            if isinstance(col, str):
-                ticker = col.replace(".KS", "")
-                if ticker in stock_codes:
-                    valid_cols.append(col)
-        price_df = price_df_all[valid_cols].copy()
+        else:
+            print(f"{current_date_yyyymmdd} has no stock data")
+            print(date_stock_dict.keys())
+            break
+        #financial_df = financial_df_all.copy()
+        #price_df = price_df_all.copy()
 
-    else:
-        print(f"{current_date_yyyymmdd} has no stock data")
-        print(date_stock_dict.keys())
-        break
-    #financial_df = financial_df_all.copy()
-    #price_df = price_df_all.copy()
+        # 2. current_date 에 맞게 데이터 필터링
+        target_quarters = get_quarterly_dates(current_date)
+        financial_df = financial_df[financial_df['YearMonth'].isin(target_quarters)]
+        returns_df = calculate_2years_return(price_df, start_date=current_date-timedelta(days=365*2), end_date=current_date)
 
-    # 2. current_date 에 맞게 데이터 필터링
-    target_quarters = get_quarterly_dates(current_date)
-    financial_df = financial_df[financial_df['YearMonth'].isin(target_quarters)]
-    returns_df = calculate_2years_return(price_df, start_date=current_date-timedelta(days=365*2), end_date=current_date)
+        # 3. 팩터 계산 및 데이터 정렬
+        factor_df = factor_calc.calculate_factors(financial_df, price_df)
+        common_tickers = set(factor_df['Code']).intersection(set(returns_df.columns.str.replace(".KS", "", regex=False)))
+        common_tickers = list(common_tickers)
+        factor_df = factor_df[factor_df['Code'].isin(common_tickers)].dropna()
+        returns_df.columns = returns_df.columns.str.replace(".KS", "", regex=False)
+        returns_df = returns_df[common_tickers]
 
-    # 3. 팩터 계산 및 데이터 정렬
-    factor_df = factor_calc.calculate_factors(financial_df, price_df)
-    common_tickers = set(factor_df['Code']).intersection(set(returns_df.columns.str.replace(".KS", "", regex=False)))
-    common_tickers = list(common_tickers)
-    factor_df = factor_df[factor_df['Code'].isin(common_tickers)].dropna()
-    returns_df.columns = returns_df.columns.str.replace(".KS", "", regex=False)
-    returns_df = returns_df[common_tickers]
+        # 4. 팩터 랭킹 및 상위종목 선별 후 포트폴리오 최적화
+        selected_stocks = factor_calc.rank_stocks(factor_df)
+        selected_tickers = [code for code in selected_stocks['Code']]
+        returns_df.columns = returns_df.columns.str.replace(".KS", "", regex=False)
+        returns_selected = returns_df[selected_tickers].dropna()
 
-    # 4. 팩터 랭킹 및 상위종목 선별 후 포트폴리오 최적화
-    selected_stocks = factor_calc.rank_stocks(factor_df)
-    selected_tickers = [code for code in selected_stocks['Code']]
-    returns_df.columns = returns_df.columns.str.replace(".KS", "", regex=False)
-    returns_selected = returns_df[selected_tickers].dropna()
+        tbill_rate = data_importer.get_korea_3m_tbill_rate(current_date) / 100
+        opt_result, sharpe_ratio = optimize_portfolio(selected_stocks, returns_selected, risk_free_rate=tbill_rate)
+        # 최적화 결과가 없을 경우, tbill_rate로 투자
+        if opt_result['Weight'].isnull().all():
+            print(f"No optimal portfolio found for {current_date}")
+            weights = [0] * len(selected_tickers) # 포트폴리오 주식투자비중 0으로 설정
+            period_return = tbill_rate # 수익률은 무위험수익률로 설정
+            weights_df = pd.DataFrame({
+                'Date': [current_date],
+                'Code': ['T-Bill'],
+                'Weight': [1.0]
+            })
 
-    tbill_rate = data_importer.get_korea_3m_tbill_rate(current_date) / 100
-    opt_result, sharpe_ratio = optimize_portfolio(selected_stocks, returns_selected, risk_free_rate=tbill_rate)
-    # 최적화 결과가 없을 경우, tbill_rate로 투자
-    if opt_result['Weight'].isnull().all():
-        print(f"No optimal portfolio found for {current_date}")
-        weights = [0] * len(selected_tickers) # 포트폴리오 주식투자비중 0으로 설정
-        period_return = tbill_rate # 수익률은 무위험수익률로 설정
-        weights_df = pd.DataFrame({
-            'Date': [current_date],
-            'Code': ['T-Bill'],
-            'Weight': [1.0]
-        })
+        else:
+            weights = opt_result['Weight'].values
 
-    else:
-        weights = opt_result['Weight'].values
+            # 5. 포트폴리오 비중에 따른 수익 계산
+            weights_df = pd.DataFrame({
+                'Date': [current_date] * len(selected_tickers),
+                'Code': selected_tickers,
+                'Weight': weights
+            })
+            portfolio_weights_history = pd.concat([portfolio_weights_history, weights_df], ignore_index=True)
 
-        # 5. 포트폴리오 비중에 따른 수익 계산
-        weights_df = pd.DataFrame({
-            'Date': [current_date] * len(selected_tickers),
-            'Code': selected_tickers,
-            'Weight': weights
-        })
-        portfolio_weights_history = pd.concat([portfolio_weights_history, weights_df], ignore_index=True)
+            # 기간 수익률 계산
+            rebalancing_end_date = current_date + relativedelta(months=3)
+            rebalancing_end_date = min(rebalancing_end_date, END_DATE)  # 종료일을 초과하지 않도록
+            daily_returns, period_return = calculate_period_returns(price_df, selected_tickers, weights, current_date,
+                                                                rebalancing_end_date)
 
-        # 기간 수익률 계산
-        rebalancing_end_date = current_date + relativedelta(months=3)
-        rebalancing_end_date = min(rebalancing_end_date, END_DATE)  # 종료일을 초과하지 않도록
-        daily_returns, period_return = calculate_period_returns(price_df, selected_tickers, weights, current_date,
-                                                            rebalancing_end_date)
+        # 6. 포트폴리오 잔고 업데이트
+        if opt_result['Weight'].isnull().all():
+            current_money_before = current_money
+            current_money *= (1 + period_return)
+            money_history.append(current_money)
+            date_history.append(current_date)
 
-    # 6. 포트폴리오 잔고 업데이트
-    if opt_result['Weight'].isnull().all():
-        current_money_before = current_money
-        current_money *= (1 + period_return)
-        money_history.append(current_money)
-        date_history.append(current_date)
+            daily_asset_values = current_money_before * (1 + period_return)
+            daily_asset_values = pd.DataFrame({'PortfolioValue': [daily_asset_values]}, index=[current_date])
+            daily_value_history = pd.concat([daily_value_history, daily_asset_values])
+        else:
+            current_money_before = current_money
+            current_money *= (1 + period_return)
+            money_history.append(current_money)
+            date_history.append(current_date)
 
-        daily_asset_values = current_money_before * (1 + period_return)
-        daily_asset_values = pd.DataFrame({'PortfolioValue': [daily_asset_values]}, index=[current_date])
-        daily_value_history = pd.concat([daily_value_history, daily_asset_values])
-    else:
-        current_money_before = current_money
-        current_money *= (1 + period_return)
-        money_history.append(current_money)
-        date_history.append(current_date)
+            daily_asset_values = current_money_before * daily_returns
+            daily_asset_values = daily_asset_values.to_frame(name="PortfolioValue")
+            daily_value_history = pd.concat([daily_value_history, daily_asset_values])
 
-        daily_asset_values = current_money_before * daily_returns
-        daily_asset_values = daily_asset_values.to_frame(name="PortfolioValue")
-        daily_value_history = pd.concat([daily_value_history, daily_asset_values])
+        # 다음 분기로 이동
+        current_date += relativedelta(months=3)
 
-    # 다음 분기로 이동
-    current_date += relativedelta(months=3)
+    # 잔여 후처리
+    portfolio_weights_history['Quarter'] = portfolio_weights_history['Date'].dt.to_period('Q')
+    ## 그래프 그리기
 
-# 잔여 후처리
-portfolio_weights_history['Quarter'] = portfolio_weights_history['Date'].dt.to_period('Q')
-## 그래프 그리기
+    # BM(코스피) 데이터 가져오기
+    kospi_data = data_importer.fetch_stock_price("^KS200", daily_value_history.index.min(), daily_value_history.index.max())
 
-# BM(코스피) 데이터 가져오기
-kospi_data = data_importer.fetch_stock_price("^KS200", daily_value_history.index.min(), daily_value_history.index.max())
+    # 분기별 종목 비중 데이터 피벗
+    weights_pivot = portfolio_weights_history.pivot_table(
+        index='Quarter', columns='Code', values='Weight', aggfunc='sum', fill_value=0
+    )
+    # Figure 생성
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 7), gridspec_kw={'width_ratios': [3, 2]})
 
-# 분기별 종목 비중 데이터 피벗
-weights_pivot = portfolio_weights_history.pivot_table(
-    index='Quarter', columns='Code', values='Weight', aggfunc='sum', fill_value=0
-)
-# Figure 생성
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 7), gridspec_kw={'width_ratios': [3, 2]})
+    # Portfolio Value (Line Chart)
+    ax1.plot(daily_value_history.index, daily_value_history["PortfolioValue"], label="Portfolio Value", color="blue")
+    ax1.plot(kospi_data.index, kospi_data["Cumulative Return"] * initial_money, label="KOSPI (Cumulative Return)", color="green")
+    ax1.set_title("Portfolio Value Over Time", fontsize=16)
+    ax1.set_xlabel("Date", fontsize=12)
+    ax1.set_ylabel("Portfolio Value (KRW)", fontsize=12)
+    ax1.grid(True)
+    ax1.legend()
 
-# Portfolio Value (Line Chart)
-ax1.plot(daily_value_history.index, daily_value_history["PortfolioValue"], label="Portfolio Value", color="blue")
-ax1.plot(kospi_data.index, kospi_data["Cumulative Return"] * initial_money, label="KOSPI (Cumulative Return)", color="green")
-ax1.set_title("Portfolio Value Over Time", fontsize=16)
-ax1.set_xlabel("Date", fontsize=12)
-ax1.set_ylabel("Portfolio Value (KRW)", fontsize=12)
-ax1.grid(True)
-ax1.legend()
+    # Investment Weights (Bar Chart - Stacked)
+    weights_pivot.plot(kind='bar', stacked=True, ax=ax2, colormap='tab20')
+    ax2.set_title("Portfolio Weights by Quarter", fontsize=16)
+    ax2.set_xlabel("Quarter", fontsize=12)
+    ax2.set_ylabel("Weight (%)", fontsize=12)
+    ax2.legend(title="Ticker", bbox_to_anchor=(1.05, 1), loc='upper left')
 
-# Investment Weights (Bar Chart - Stacked)
-weights_pivot.plot(kind='bar', stacked=True, ax=ax2, colormap='tab20')
-ax2.set_title("Portfolio Weights by Quarter", fontsize=16)
-ax2.set_xlabel("Quarter", fontsize=12)
-ax2.set_ylabel("Weight (%)", fontsize=12)
-ax2.legend(title="Ticker", bbox_to_anchor=(1.05, 1), loc='upper left')
-
-plt.tight_layout()
-plt.show(block=True)
+    plt.tight_layout()
+    plt.show(block=True)
 
 
-##
+    ##
 
-plt.close()
-# CAGR, MDD, Sharpe Ratio 계산 필요
-import numpy as np
+    plt.close()
+    # CAGR, MDD, Sharpe Ratio 계산 필요
+    import numpy as np
 
-# CAGR (Compound Annual Growth Rate) 계산 함수
-def calculate_cagr(initial_value, final_value, years):
-    """
-    :param initial_value: 초기 자산
-    :param final_value: 최종 자산
-    :param years: 투자 기간 (연 단위)
-    :return: CAGR (%)
-    """
-    return ((final_value / initial_value) ** (1 / years) - 1) * 100
+    # CAGR (Compound Annual Growth Rate) 계산 함수
+    def calculate_cagr(initial_value, final_value, years):
+        """
+        :param initial_value: 초기 자산
+        :param final_value: 최종 자산
+        :param years: 투자 기간 (연 단위)
+        :return: CAGR (%)
+        """
+        return ((final_value / initial_value) ** (1 / years) - 1) * 100
 
-# MDD (Maximum Drawdown) 계산 함수
-def calculate_mdd(value_history):
-    """
-    :param value_history: 포트폴리오의 일별 가치 시계열 (Series)
-    :return: MDD (%)
-    """
-    running_max = value_history.cummax()
-    drawdowns = (value_history / running_max) - 1
-    max_drawdown = drawdowns.min()
-    return max_drawdown * 100
+    # MDD (Maximum Drawdown) 계산 함수
+    def calculate_mdd(value_history):
+        """
+        :param value_history: 포트폴리오의 일별 가치 시계열 (Series)
+        :return: MDD (%)
+        """
+        running_max = value_history.cummax()
+        drawdowns = (value_history / running_max) - 1
+        max_drawdown = drawdowns.min()
+        return max_drawdown * 100
 
-# Sharpe Ratio 계산 함수
-def calculate_sharpe_ratio(daily_returns, risk_free_rate=0.001):
-    """
-    :param daily_returns: 일별 수익률 (Series)
-    :param risk_free_rate: 무위험 수익률 (연 단위, 기본값: 0.1%)
-    :return: Sharpe Ratio
-    """
-    excess_daily_returns = daily_returns - (risk_free_rate / 252)  # 1년 = 252 거래일 기준
-    return np.mean(excess_daily_returns) / np.std(excess_daily_returns, ddof=1)
+    # Sharpe Ratio 계산 함수
+    def calculate_sharpe_ratio(daily_returns, risk_free_rate=0.001):
+        """
+        :param daily_returns: 일별 수익률 (Series)
+        :param risk_free_rate: 무위험 수익률 (연 단위, 기본값: 0.1%)
+        :return: Sharpe Ratio
+        """
+        excess_daily_returns = daily_returns - (risk_free_rate / 252)  # 1년 = 252 거래일 기준
+        return np.mean(excess_daily_returns) / np.std(excess_daily_returns, ddof=1)
 
-# 최종 평가 계산
-total_years = (daily_value_history.index.max() - daily_value_history.index.min()).days / 365.25
-cagr = calculate_cagr(initial_money, current_money, total_years)
-mdd = calculate_mdd(daily_value_history["PortfolioValue"])
-daily_portfolio_returns = daily_value_history["PortfolioValue"].pct_change().dropna()
-sharpe_ratio = calculate_sharpe_ratio(daily_portfolio_returns)
+    # 최종 평가 계산
+    total_years = (daily_value_history.index.max() - daily_value_history.index.min()).days / 365.25
+    cagr = calculate_cagr(initial_money, current_money, total_years)
+    mdd = calculate_mdd(daily_value_history["PortfolioValue"])
+    daily_portfolio_returns = daily_value_history["PortfolioValue"].pct_change().dropna()
+    sharpe_ratio = calculate_sharpe_ratio(daily_portfolio_returns)
 
-# BM (KOSPI Index) 성과 계산
-kospi_returns = kospi_data['Cumulative Return'].pct_change().dropna()
+    # BM (KOSPI Index) 성과 계산
+    kospi_returns = kospi_data['Cumulative Return'].pct_change().dropna()
 
-# BM의 CAGR 계산
-bm_initial_value = kospi_data['Cumulative Return'].iloc[0] * initial_money
-bm_final_value = kospi_data['Cumulative Return'].iloc[-1] * initial_money
-bm_cagr = calculate_cagr(bm_initial_value, bm_final_value, total_years)
+    # BM의 CAGR 계산
+    bm_initial_value = kospi_data['Cumulative Return'].iloc[0] * initial_money
+    bm_final_value = kospi_data['Cumulative Return'].iloc[-1] * initial_money
+    bm_cagr = calculate_cagr(bm_initial_value, bm_final_value, total_years)
 
-# BM의 MDD 계산
-bm_mdd = calculate_mdd(kospi_data['Cumulative Return'] * initial_money)
+    # BM의 MDD 계산
+    bm_mdd = calculate_mdd(kospi_data['Cumulative Return'] * initial_money)
 
-# BM의 Sharpe Ratio 계산
-bm_sharpe_ratio = calculate_sharpe_ratio(kospi_returns)
+    # BM의 Sharpe Ratio 계산
+    bm_sharpe_ratio = calculate_sharpe_ratio(kospi_returns)
 
-# 결과 출력
-print(f"Portfolio Performance:")
-print(f" - CAGR (연평균 성장률): {cagr:.2f}%")
-print(f" - MDD (최대 손실률): {mdd:.2f}%")
-print(f" - Sharpe Ratio: {sharpe_ratio:.2f}")
-print()
-print(f"Benchmark (KOSPI) Performance:")
-print(f" - CAGR (연평균 성장률): {bm_cagr:.2f}%")
-print(f" - MDD (최대 손실률): {bm_mdd:.2f}%")
-print(f" - Sharpe Ratio: {bm_sharpe_ratio:.2f}")
+    # 결과 출력
+    print(f"Portfolio Performance:")
+    print(f" - CAGR (연평균 성장률): {cagr:.2f}%")
+    print(f" - MDD (최대 손실률): {mdd:.2f}%")
+    print(f" - Sharpe Ratio: {sharpe_ratio:.2f}")
+    print()
+    print(f"Benchmark (KOSPI) Performance:")
+    print(f" - CAGR (연평균 성장률): {bm_cagr:.2f}%")
+    print(f" - MDD (최대 손실률): {bm_mdd:.2f}%")
+    print(f" - Sharpe Ratio: {bm_sharpe_ratio:.2f}")
 ##
