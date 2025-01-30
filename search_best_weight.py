@@ -102,6 +102,15 @@ def rank_stocks_with_weights(factor_df, factor_weights):
     return ranked_df.sort_values("TotalScore", ascending=False)
 
 #########################################
+# 추가 - CAGR 계산 함수
+#########################################
+def calculate_cagr(initial_money, final_money, start_date, end_date):
+    total_years = max((end_date - start_date).days / 365.25, 0.0001)  # 0으로 나누기 방지
+    if final_money <= 0:  # 손실이 -100%를 넘는 경우
+        return -100.0
+    return (((final_money / initial_money) ** (1 / total_years)) - 1) * 100
+
+#########################################
 # 2) 여러 가중치 조합을 탐색(그리드 서치)하는 함수
 #########################################
 def run_single_combination(combo_args):
@@ -123,12 +132,14 @@ def run_single_combination(combo_args):
     current_money = initial_money
     current_date = START_DATE
 
-    while current_date <= END_DATE:
-        current_date_yyyymmdd = current_date.strftime('%Y%m%d')
+    # 날짜 순서 보정
+    dates = sorted([d for d in date_stock_dict.keys() if datetime.strptime(d, '%Y%m%d') >= START_DATE])
 
-        # 해당 날짜의 종목 필터링
-        if current_date_yyyymmdd not in date_stock_dict:
+    for current_date_yyyymmdd in dates:
+        current_date = datetime.strptime(current_date_yyyymmdd, '%Y%m%d')
+        if current_date > END_DATE:
             break
+
         stock_codes = date_stock_dict[current_date_yyyymmdd]
         financial_df = financial_df_all[financial_df_all['Code'].isin(stock_codes)].copy()
         valid_cols = []
@@ -183,6 +194,10 @@ def run_single_combination(combo_args):
                 current_date,
                 rebalancing_end_date
             )
+        # 수익률 에러 발생 처리
+        if abs(period_return) > 1.0:
+            print(f"Error: Abnormal return detected at {current_date}, period return: {period_return}\n it set to 0.0")
+            period_return = 0.0
 
         # 자산 업데이트
         current_money *= (1 + period_return)
@@ -193,10 +208,7 @@ def run_single_combination(combo_args):
     # 백테스트 결과
     final_money = current_money
     total_years = (END_DATE - START_DATE).days / 365.25
-    if total_years <= 0:
-        cagr = 0
-    else:
-        cagr = ((final_money / initial_money) ** (1 / total_years) - 1) * 100
+    cagr = calculate_cagr(initial_money, final_money, START_DATE, END_DATE)
 
     # 리턴할 딕셔너리
     return {
