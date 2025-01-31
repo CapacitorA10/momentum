@@ -133,7 +133,7 @@ def run_single_combination(combo_args):
         financial_df = financial_df_all[financial_df_all['Code'].isin(stock_codes)].copy()
         valid_cols = []
         for col in price_df_all.columns:
-            ticker = col.replace(".KS", "")
+            ticker = col.replace(".KQ", "")
             if ticker in stock_codes:
                 valid_cols.append(col)
         price_df = price_df_all[valid_cols].copy()
@@ -153,10 +153,10 @@ def run_single_combination(combo_args):
         # 팩터 계산
         factor_df = factor_calc.calculate_factors(financial_df, price_df)
         common_tickers = set(factor_df['Code']).intersection(
-            set(returns_df.columns.str.replace(".KS", ""))
+            set(returns_df.columns.str.replace(".KQ", ""))
         )
         factor_df = factor_df[factor_df['Code'].isin(common_tickers)].dropna()
-        returns_df.columns = returns_df.columns.str.replace(".KS", "")
+        returns_df.columns = returns_df.columns.str.replace(".KQ", "")
         returns_df = returns_df[list(common_tickers)]
 
         # (c) rank_stocks_with_weights 사용 → 상위 N 종목
@@ -327,7 +327,7 @@ if __name__ == "__main__":
         print("데이터 로드 완료")
     else:
         financial_df_all, date_stock_dict = data_importer.get_all_financial_data(START_DATE, END_DATE)
-        price_df_all = data_importer.get_price_data([code + ".KS" for code in financial_df_all['Code']])
+        price_df_all = data_importer.get_price_data([code + ".KQ" for code in financial_df_all['Code']])
 
         financial_df_all.to_csv(financial_df_path, index=True)
         json.dump(date_stock_dict, open(date_stock_dict_path, 'w'))
