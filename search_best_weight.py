@@ -40,65 +40,63 @@ warnings.simplefilter(action='ignore', category=UserWarning)
 #########################################
 def rank_stocks_with_weights(factor_df, factor_weights):
     """
-    factor_df: FactorCalculator.calculate_factors() 결과 (RevenueGrowth, OpIncomeGrowth, ROE, RSI 등 열 포함)
-    factor_weights: dict 형태. 예: {"RevenueGrowth":1.5, "OpIncomeGrowth":1.0, "ROE":2.0, "RSI":0.5}
-        - 각 팩터별로 몇 배 가중치를 둘지 결정
-
-    * 로직:
-      1) 각 팩터별로 정규화/랭크 → score 부여
-      2) score에 factor_weights를 곱해 최종 스코어를 계산
-      3) 최종 스코어가 높은 순으로 종목 정렬
+    수정된 rank_stocks_with_weights 함수
+    - RevenueGrowth와 OpIncomeGrowth: min-max 정규화(normalize_series 사용) 후 내림차순 순위 산출
+    - ROE: 정규화 없이 내림차순 순위 산출
+    - RSI: 내림차순 순위 산출하되, RSI 값이 70 이상이면 강제로 1점 부여
+    - 동적 가중치는 factor_weights 인자로 받아 각 팩터 점수에 곱해 최종 TotalScore를 계산함
     """
-
+    from strategy_modules import normalize_series
+    # factor_df를 복사하여 작업
     ranked_df = factor_df.copy()
-    # 활용할 팩터 컬럼명
     factor_cols = ["RevenueGrowth", "OpIncomeGrowth", "ROE", "RSI"]
 
-    # 안전장치: factor_weights에 모든 팩터가 들어있지 않을 경우 KeyError 방지
+    # 모든 팩터에 대해 동적 가중치가 없으면 기본값 1.0 할당
     for col in factor_cols:
         if col not in factor_weights:
-            factor_weights[col] = 1.0  # 기본 가중치 1.0
+            print("Warning: No weight assigned for", col)
+            print("Default weight 1.0 is assigned.")
+            factor_weights[col] = 1.0
 
-    # (A) 각 팩터별 0~1 정규화 or 분위(Q-cut)로 점수화
+    # 각 팩터별 점수 산출
     for col in factor_cols:
-        # 예시) RevenueGrowth, OpIncomeGrowth -> 높은값 좋음(내림차순)
-        #       ROE -> 높은값 좋음(내림차순)
-        #       RSI -> 특정 구간으로 점수화(낮은 값 선호 등) 방식 등… (원하시면 커스터마이징)
-
-        # 여기서는 간단히 "높을수록 좋음"인 팩터들을 qcut으로 1~5점 배정(ROI처럼)
-        # RSI는 예시로 70 이상이면 오히려 1점(안좋음), 나머지는 5점 ~ 1점으로 나눈다고 가정
-        if col != "RSI":
-            # NaN이면 0으로 채우거나, 혹은 제거
-            temp_series = ranked_df[col].fillna(ranked_df[col].mean())
-            # 내림차순 rank
-            rank_vals = temp_series.rank(method='first', ascending=False)
-            # 5분위 → 5~1점
+        if col in ["RevenueGrowth", "OpIncomeGrowth"]:
+            # 음수값 처리 등으로 normalize_series를 적용하여 [0,1] 범위로 변환
+            ranked_df[col + "_normalized"] = normalize_series(ranked_df[col])
+            # 내림차순 순위: 값이 클수록 더 높은 순위를 부여
+            rank_vals = ranked_df[col + "_normalized"].rank(method='first', ascending=False)
+            # 5분위(qcut)를 사용하여 5~1 점수 산출 (5점: 상위 20%, 1점: 하위 20%)
             ranked_df[col + "_score"] = 5 - pd.qcut(rank_vals, 5, labels=False, duplicates="drop")
-        else:
-            # RSI 70 이상은 1점, 나머지는 (낮을수록 좋다는 가정) 5점→1점
-            # 여기서는 단순화: RSI < 30 → 5점 / 30~70 → 3점 / 70이상 → 1점 등으로 가능
-            # (아래 예시는 qcut 활용)
-            temp_rsi = ranked_df[col].fillna(ranked_df[col].mean())
-            # RSI 70 이상은 일단 1점
-            over_70_idx = temp_rsi >= 70
-            rank_vals = temp_rsi.rank(method='first', ascending=True)  # 낮을수록 좋은 것으로 가정
-            ranked_df[col + "_score"] = 5 - pd.qcut(rank_vals, 5, labels=False, duplicates="drop")
-            # RSI 70 이상인 구간을 강제 1점으로 덮어씀
-            ranked_df.loc[over_70_idx, col + "_score"] = 1
 
-    # (B) 가중치 적용 → 최종 스코어
-    #    예) TotalScore = sum( factor_score * factor_weight ) / (sum of weights)
-    #    혹은 단순히 factor별로 곱한 뒤 모두 더한 값
-    total_w = sum(factor_weights.values())
-    ranked_df["TotalScore"] = 0.0
-    for col in factor_cols:
-        ranked_df["TotalScore"] += ranked_df[col + "_score"] * factor_weights[col]
+        elif col == "ROE":
+            # 모든 ROE값이 NaN이면 기본 1점 할당
+            if ranked_df[col].isna().all():
+                ranked_df[col + "_score"] = 1
+            else:
+                # 정규화 없이 내림차순 순위 산출
+                rank_vals = ranked_df[col].rank(method='first', ascending=False)
+                ranked_df[col + "_score"] = 5 - pd.qcut(rank_vals, 5, labels=False, duplicates="drop")
 
-    # 최종 스코어를 "가중치 총합"으로 나누거나 말거나는 자유.
-    # 여기서는 가중합 그대로 사용.
-    # ranked_df["TotalScore"] = ranked_df["TotalScore"] / total_w
+        elif col == "RSI":
+            # 모든 RSI값이 NaN이면 기본 1점 할당
+            if ranked_df[col].isna().all():
+                ranked_df[col + "_score"] = 1
+            else:
+                # 내림차순 순위 산출: 높은 값이 좋은 것으로 가정
+                rank_vals = ranked_df[col].rank(method='first', ascending=False)
+                ranked_df[col + "_score"] = 5 - pd.qcut(rank_vals, 5, labels=False, duplicates="drop")
+                # 단, RSI 값이 70 이상이면 과매수로 판단하여 강제로 1점 할당
+                ranked_df.loc[ranked_df[col] >= 70, col + "_score"] = 1
 
-    # 상위 10~20개 정도 뽑는 예시
+    # 동적 가중치를 적용하여 TotalScore 계산 (가중합 방식)
+    ranked_df["TotalScore"] = (
+            ranked_df["RevenueGrowth_score"] * factor_weights["RevenueGrowth"] +
+            ranked_df["OpIncomeGrowth_score"] * factor_weights["OpIncomeGrowth"] +
+            ranked_df["ROE_score"] * factor_weights["ROE"] +
+            ranked_df["RSI_score"] * factor_weights["RSI"]
+    )
+
+    # TotalScore 기준 내림차순 정렬 후 반환
     return ranked_df.sort_values("TotalScore", ascending=False)
 
 #########################################
